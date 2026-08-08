@@ -150,7 +150,16 @@ header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;a
   <div class="field">
     <label>Anthropic API key (for AI answers)</label>
     <input id="set-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
-    <div class="note">Optional. Without it, the app still syncs all your teams and the search box finds any player across every league instantly. Add a key from console.anthropic.com to unlock full AI answers.</div>
+    <div class="note">Optional. Without it, the app still syncs all your teams and the search box finds any player across every league instantly. Add a key from console.anthropic.com to unlock full AI answers. Paste it only here — never share it in chats.</div>
+  </div>
+  <div class="field">
+    <label>AI brain</label>
+    <select id="set-model" style="width:100%;background:var(--bg);border:1px solid var(--line);color:var(--chalk);border-radius:8px;padding:11px 12px;font-size:15px;outline:none;font-family:var(--body)">
+      <option value="auto">Auto (recommended) — smart model for big questions, cheap model for quick lookups</option>
+      <option value="max">Max quality — always the smart model</option>
+      <option value="budget">Budget — always the cheap model</option>
+    </select>
+    <div class="note">Auto routes analysis, trades, and news questions to Claude Sonnet (with web search) and simple roster lookups to Claude Haiku at a fraction of the cost.</div>
   </div>
   <button class="primary" onclick="saveSettings()">Save &amp; sync</button>
 </div></div>
@@ -159,6 +168,7 @@ header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;a
 const API="https://api.sleeper.app/v1";
 const S={user:localStorage.getItem("shq_user")||"stevenv123",
         key:localStorage.getItem("shq_key")||"",
+        model:localStorage.getItem("shq_model")||"auto",
         data:null,ctx:"",msgs:[],busy:false,searchIndex:[]};
 
 const $=id=>document.getElementById(id);
@@ -201,7 +211,12 @@ async function sync(){
     const lists=await Promise.all(seasons.map(s=>jget(API+"/user/"+user.user_id+"/leagues/nfl/"+s).catch(()=>[])));
     const seen=new Set(),raw=[];
     lists.flat().forEach(lg=>{if(!seen.has(lg.league_id)){seen.add(lg.league_id);raw.push(lg);}});
-    if(!raw.length)throw new Error("No leagues found for "+S.user);
+    // keep it clean: only current-season leagues that aren't finished.
+    // (fallback to previous season's unfinished leagues if the new season hasn't been set up yet)
+    const cur=raw.filter(lg=>String(lg.season)===String(nfl.season)&&lg.status!=="complete");
+    const active=cur.length?cur:raw.filter(lg=>lg.status!=="complete");
+    if(!active.length)throw new Error("No active leagues found for "+S.user);
+    raw.length=0;active.forEach(lg=>raw.push(lg));
     stageSet(30,"Scouting "+raw.length+" leagues");
     const week=Math.max(1,nfl.week||1);
     const per=await Promise.all(raw.map(async lg=>{
@@ -281,7 +296,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week;
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v2";
     $("hintttl").textContent="All "+leagues.length+" teams loaded. Ask anything.";
     renderRibbon();renderChips();
     stageSet(100,"Touchdown");
@@ -340,7 +355,13 @@ async function ask(q){
     renderChat();return;
   }
   S.msgs.push({role:"user",content:question});S.busy=true;renderChat();
-  const body={model:"claude-sonnet-4-6",max_tokens:1500,system:S.ctx,
+  // model routing: heavy analysis/news -> Sonnet + web search; quick lookups -> Haiku (cheaper, faster)
+  const HEAVY=/news|latest|injur|update|report|should|trade|rank|compar|advice|start|sit|drop|add|waiver|pickup|why|analy|best|worst|help|strateg|target|sleeper pick|buy|sell|value|rest of season|playoff/i;
+  const heavy=HEAVY.test(question)||question.length>90||S.msgs.length>6;
+  const model=S.model==="max"?"claude-sonnet-4-6"
+             :S.model==="budget"?"claude-haiku-4-5"
+             :(heavy?"claude-sonnet-4-6":"claude-haiku-4-5");
+  const body={model,max_tokens:1200,system:S.ctx,
     messages:S.msgs.map(m=>({role:m.role,content:m.content})),
     tools:[{type:"web_search_20250305",name:"web_search"}]};
   try{
@@ -411,13 +432,16 @@ document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if
 // settings
 $("gear").addEventListener("click",()=>{
   $("set-user").value=S.user;$("set-key").value=S.key;
+  $("set-model").value=S.model;
   $("setmodal").classList.add("show");
 });
 function saveSettings(){
   S.user=$("set-user").value.trim()||"stevenv123";
   S.key=$("set-key").value.trim();
+  S.model=$("set-model").value;
   localStorage.setItem("shq_user",S.user);
   localStorage.setItem("shq_key",S.key);
+  localStorage.setItem("shq_model",S.model);
   closeModals();sync();
 }
 $("syncbtn").addEventListener("click",()=>sync());
