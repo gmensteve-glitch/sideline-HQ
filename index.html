@@ -50,6 +50,9 @@ header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;a
 .hintttl{font-family:var(--disp);font-size:20px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
 .chip{background:var(--panel2);border:1px solid var(--line);color:var(--chalk);border-radius:999px;padding:8px 14px;font-size:13px}
+.tabs{display:flex;gap:6px;margin:12px 0 4px;flex-wrap:wrap}
+.tab{padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:none;color:var(--muted);font-family:var(--disp);letter-spacing:1px;font-size:12px;text-transform:uppercase;cursor:pointer}
+.tab.on{background:var(--yellow);color:#1A1A10;border-color:var(--yellow);font-weight:700}
 .msg{max-width:88%;border-radius:12px;padding:10px 14px;font-size:14px;line-height:1.55;overflow-wrap:break-word;white-space:pre-wrap}
 .msg.user{align-self:flex-end;background:rgba(255,210,74,.10);border:1px solid rgba(255,210,74,.35)}
 .msg.ai{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
@@ -305,7 +308,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v7";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v8";
     S.aiCache={};
     renderRibbon();
     checkLineups();
@@ -480,73 +483,105 @@ document.addEventListener("click",e=>{
 });
 
 // team sheet
+function tabLabel(t){return {lineup:"Lineup",waivers:"Waivers",news:"News",recs:"Recs"}[t];}
+function curTab(id){return (S.tabSel&&S.tabSel[id])||"lineup";}
+function refreshBtnHtml(i,tab){return '<button class="ghost" style="margin-top:10px" onclick="loadTab('+i+',\''+tab+'\',true)">Refresh</button>';}
+function aiSectionHtml(i,tab){
+  const l=S.data.leagues[i];
+  if(!S.key)return '<div class="note">Add your API key in ⚙ to auto-fill this tab.</div>';
+  const c=S.aiCache[l.id]&&S.aiCache[l.id][tab];
+  if(c&&c.text)return mdToHtml(c.text)+refreshBtnHtml(i,tab);
+  return '<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Loading…</div>';
+}
+function tabContentHtml(i,tab){
+  const l=S.data.leagues[i];
+  if(tab==="lineup"){
+    const list=a=>a.length?a.map(p=>'<div>'+esc(p.label).replace(/\[(OUT|IR|DOUBTFUL|NA|PUP|SUS)\]/,'<span class="hurtag">[$1]</span>')+'</div>').join(""):'<div style="color:var(--muted)">(none)</div>';
+    const {issues,qs}=leagueIssues(l);
+    let flagHtml="";
+    if(issues.length||qs.length){
+      let f="";
+      if(issues.length)f+=issues.join("\n")+"\n";
+      if(qs.length)f+="- Monitor [Q]: "+qs.map(p=>p.name).join(", ");
+      flagHtml='<div class="sec" style="color:var(--red)">⚠ Flags</div><div class="pl">'+mdToHtml(f)+'</div>';
+    }
+    return '<div class="sec">Starters</div><div class="pl">'+list(l.starters)+'</div>'+
+      '<div class="sec">Bench</div><div class="pl">'+list(l.bench)+'</div>'+flagHtml+
+      '<div class="sec">Recommendations</div><div class="pl" id="ai-'+l.id+'-lineup">'+aiSectionHtml(i,"lineup")+'</div>';
+  }
+  return '<div class="pl" id="ai-'+l.id+'-'+tab+'">'+aiSectionHtml(i,tab)+'</div>';
+}
+function blockInner(i){
+  const l=S.data.leagues[i];
+  const tab=curTab(l.id);
+  const tabs=["lineup","waivers","news","recs"].map(t=>
+    '<button class="tab'+(t===tab?" on":"")+'" onclick="setTab('+i+',\''+t+'\')">'+tabLabel(t)+'</button>').join("");
+  return '<div class="sheetttl">'+esc(l.name)+'</div>'+
+    '<div class="sheetmeta">'+l.size+'-team · '+esc(l.scoring)+' · '+esc(l.record)+' · Rank '+l.rank+'/'+l.size+
+    (l.faabLeft!=null?' · FAAB $'+l.faabLeft+'/$'+l.budget:'')+
+    (l.opponent?' · vs '+esc(l.opponent):'')+'</div>'+
+    '<div class="tabs">'+tabs+'</div>'+
+    '<div id="tabc-'+l.id+'">'+tabContentHtml(i,tab)+'</div>';
+}
 function teamBlockHtml(i){
   const l=S.data.leagues[i];
-  const list=a=>a.length?a.map(p=>'<div>'+esc(p.label).replace(/\[(OUT|IR|DOUBTFUL|NA|PUP|SUS)\]/,'<span class="hurtag">[$1]</span>')+'</div>').join(""):'<div style="color:var(--muted)">(none)</div>';
-  const {issues,qs}=leagueIssues(l);
-  let flagHtml="";
-  if(issues.length||qs.length){
-    let f="";
-    if(issues.length)f+=issues.join("\n")+"\n";
-    if(qs.length)f+="- Monitor [Q]: "+qs.map(p=>p.name).join(", ");
-    flagHtml='<div class="sec" style="color:var(--red)">⚠ Lineup flags</div><div class="pl">'+mdToHtml(f)+'</div>';
-  }
-  const c=S.aiCache[l.id];
-  let news;
-  if(!S.key)news='<div class="note">Add your API key in ⚙ and this section auto-fills with news + start/sit.</div>';
-  else if(c&&c.text)news=mdToHtml(c.text)+newsRefreshBtn(i);
-  else news='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Pulling the latest on your guys…</div>';
-  return '<div class="msg ai" style="max-width:100%">'+
-    '<div class="sheetttl">'+esc(l.name)+'</div>'+
-    '<div class="sheetmeta">'+l.size+'-team · '+esc(l.scoring)+' · '+esc(l.record)+' · Rank '+l.rank+'/'+l.size+' · PF '+l.pf+
-    (l.faabLeft!=null?' · FAAB $'+l.faabLeft+'/$'+l.budget:'')+
-    (l.opponent?'<br>This week vs '+esc(l.opponent):'')+'</div>'+
-    '<div class="sec">Starters</div><div class="pl">'+list(l.starters)+'</div>'+
-    '<div class="sec">Bench</div><div class="pl">'+list(l.bench)+'</div>'+
-    flagHtml+
-    '<div class="sec">Key news &amp; start/sit</div><div class="pl" id="news-'+l.id+'">'+news+'</div></div>';
+  return '<div class="msg ai" style="max-width:100%" id="block-'+l.id+'">'+blockInner(i)+'</div>';
+}
+function setTab(i,tab){
+  const l=S.data.leagues[i];
+  S.tabSel=S.tabSel||{};S.tabSel[l.id]=tab;
+  const b=document.getElementById("block-"+l.id);
+  if(b)b.innerHTML=blockInner(i);
+  loadTab(i,tab,false);
 }
 function openTeam(i){
   S.feed=S.feed.filter(e=>!(e.t==="team"&&e.i===i));
   S.feed.push({t:"team",i});
   renderChat();
-  loadNews(i,false);
+  loadTab(i,curTab(S.data.leagues[i].id),false);
 }
-function newsRefreshBtn(i){return '<button class="ghost" style="margin-top:10px" onclick="loadNews('+i+',true)">Refresh news</button>';}
-function fetchNews(l){
-  const c=S.aiCache[l.id];
+const TAB_PROMPTS={
+  lineup:'For my team in "{L}" ONLY. Recommend my optimal starting lineup using the latest news and matchups. Output only: 1) SWAPS — each on one line as "Start X over Y — <one short reason>", or "No changes — lineup is optimal". 2) If any starters are Questionable, one line each with the pivot plan. Hard limit 8 lines. No preamble.',
+  waivers:'For my team in "{L}" ONLY. Using the trending adds and my roster needs: give me 3-5 waiver targets as "Name (POS·TM) — one-line why — FAAB $X of my remaining budget", then one line on who to drop. Nothing else.',
+  news:'KEY NEWS for my rostered players in "{L}" from the past week only. One tight bullet per player that has real news (injury, role change, depth chart move). Skip everyone else entirely. Hard limit 10 bullets. No preamble.',
+  recs:'Big-picture read on my team in "{L}": exactly 5 bullets — biggest strength, biggest weakness, one realistic trade idea, one stash/add idea, this week priority. One line each. No preamble.'
+};
+function fetchTab(l,tab){
+  S.aiCache[l.id]=S.aiCache[l.id]||{};
+  const c=S.aiCache[l.id][tab];
   if(c&&c.text)return Promise.resolve();
   if(c&&c.promise)return c.promise;
   const p=(async()=>{
-    const prompt='For my team in "'+l.name+'" ONLY. Two short sections: 1) KEY NEWS — the latest on my rostered players from this past week (injuries, role changes, depth chart moves, anything actionable), tight bullets, skip players with no news. 2) START/SIT — specific swap recommendations (who out, who in) or confirm the lineup is right. Be decisive and brief.';
-    const body={model:"claude-sonnet-4-6",max_tokens:900,system:S.ctx,
+    const prompt=TAB_PROMPTS[tab].replace("{L}",l.name);
+    const body={model:"claude-sonnet-4-6",max_tokens:700,system:S.ctx,
       messages:[{role:"user",content:prompt}],
       tools:[{type:"web_search_20250305",name:"web_search"}]};
     try{
       let out=await callClaude(body);
       if(out&&out.error&&/tool|web_search/i.test(out.error.message||"")){delete body.tools;out=await callClaude(body);}
       if(out&&out.error)throw new Error(out.error.message||"API error");
-      const text=(out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()||"No news came back — try refresh.";
-      S.aiCache[l.id]={text};
+      const text=(out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()||"Nothing came back — try refresh.";
+      S.aiCache[l.id][tab]={text};
     }catch(e){
-      S.aiCache[l.id]={text:"**Couldn't load news:** "+e.message};
+      S.aiCache[l.id][tab]={text:"**Couldn't load:** "+e.message};
     }
   })();
-  S.aiCache[l.id]={busy:true,promise:p};
+  S.aiCache[l.id][tab]={busy:true,promise:p};
   return p;
 }
-async function loadNews(i,force){
+async function loadTab(i,tab,force){
   const l=S.data.leagues[i];
   if(!S.key)return;
-  const box=()=>document.getElementById("news-"+l.id);
-  if(force){delete S.aiCache[l.id];const d=box();if(d)d.innerHTML='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Pulling the latest on your guys…</div>';}
-  const c=S.aiCache[l.id];
-  if(c&&c.text){const d=box();if(d)d.innerHTML=mdToHtml(c.text)+newsRefreshBtn(i);return;}
-  await fetchNews(l);
-  const d=box();
-  if(d&&S.aiCache[l.id]&&S.aiCache[l.id].text)d.innerHTML=mdToHtml(S.aiCache[l.id].text)+newsRefreshBtn(i);
+  const el=()=>document.getElementById("ai-"+l.id+"-"+tab);
+  if(force){if(S.aiCache[l.id])delete S.aiCache[l.id][tab];const d=el();if(d)d.innerHTML='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Loading…</div>';}
+  const c=S.aiCache[l.id]&&S.aiCache[l.id][tab];
+  if(c&&c.text){const d=el();if(d)d.innerHTML=mdToHtml(c.text)+refreshBtnHtml(i,tab);return;}
+  await fetchTab(l,tab);
+  const d=el();
+  const r=S.aiCache[l.id]&&S.aiCache[l.id][tab];
+  if(d&&r&&r.text)d.innerHTML=mdToHtml(r.text)+refreshBtnHtml(i,tab);
 }
-// preload news for every drafted league, 3 at a time
+// preload the default Lineup tab for every drafted league, 3 at a time
 async function preloadAll(){
   if(!S.key||!S.data)return;
   const targets=S.data.leagues.filter(l=>l.starters.length);
@@ -558,12 +593,13 @@ async function preloadAll(){
   async function worker(){
     while(queue.length){
       const l=queue.shift();
-      await fetchNews(l);
+      await fetchTab(l,"lineup");
       done++;tick();
-      const d=document.getElementById("news-"+l.id);
-      if(d&&S.aiCache[l.id]&&S.aiCache[l.id].text){
+      const d=document.getElementById("ai-"+l.id+"-lineup");
+      const r=S.aiCache[l.id]&&S.aiCache[l.id].lineup;
+      if(d&&r&&r.text){
         const idx=S.data.leagues.findIndex(x=>x.id===l.id);
-        d.innerHTML=mdToHtml(S.aiCache[l.id].text)+newsRefreshBtn(idx);
+        d.innerHTML=mdToHtml(r.text)+refreshBtnHtml(idx,"lineup");
       }
     }
   }
