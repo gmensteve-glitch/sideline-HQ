@@ -175,7 +175,8 @@ const S={user:localStorage.getItem("shq_user")||"stevenv123",
         key:localStorage.getItem("shq_key")||"",
         model:localStorage.getItem("shq_model")||"auto",
         preload:localStorage.getItem("shq_preload")!=="off",
-        data:null,ctx:"",msgs:[],busy:false,searchIndex:[],report:"",aiCache:{},openLg:null};
+        data:null,ctx:"",msgs:[],feed:[],busy:false,searchIndex:[],report:"",aiCache:{},openLg:null};
+function addMsg(role,content){S.msgs.push({role,content});S.feed.push({t:role==="user"?"user":"ai",c:content});}
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -206,7 +207,7 @@ function show(view){
 }
 
 async function sync(){
-  show("load"); S.msgs=[]; S.report=""; renderChat();
+  show("load"); S.msgs=[]; S.feed=[]; S.report=""; renderChat();
   try{
     stageSet(5,"Reading the NFL clock");
     const nfl=await jget(API+"/state/nfl");
@@ -304,7 +305,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v5";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v6";
     S.aiCache={};
     renderRibbon();
     checkLineups();
@@ -354,7 +355,10 @@ function mdToHtml(t){
 function renderChat(){
   let html="";
   if(S.report)html+='<div class="msg ai" style="max-width:100%">'+mdToHtml(S.report)+'</div>';
-  html+=S.msgs.map(m=>'<div class="msg '+(m.role==="user"?"user":"ai")+'">'+(m.role==="user"?esc(m.content):mdToHtml(m.content))+'</div>').join("");
+  html+=S.feed.map(e=>{
+    if(e.t==="team")return teamBlockHtml(e.i);
+    return '<div class="msg '+(e.t==="user"?"user":"ai")+'">'+(e.t==="user"?esc(e.c):mdToHtml(e.c))+'</div>';
+  }).join("");
   if(S.busy)html+='<div class="think">Reviewing the tape…</div>';
   $("chat").innerHTML=html||hintHtml();
   $("chat").scrollTop=$("chat").scrollHeight;
@@ -410,11 +414,11 @@ async function ask(q){
   if(!question||S.busy||!S.ctx)return;
   hideInstant();$("q").value="";
   if(!S.key){
-    S.msgs.push({role:"user",content:question},
-      {role:"assistant",content:"**AI answers need an API key.** Tap ⚙ and paste an Anthropic API key (console.anthropic.com) to unlock full answers with live web search. Meanwhile, the search box still finds any player across all your teams instantly — just start typing a name."});
+    addMsg("user",question);
+    addMsg("assistant","**AI answers need an API key.** Tap ⚙ and paste an Anthropic API key (console.anthropic.com) to unlock full answers with live web search. Meanwhile, the search box still finds any player across all your teams instantly — just start typing a name.");
     renderChat();return;
   }
-  S.msgs.push({role:"user",content:question});S.busy=true;renderChat();
+  addMsg("user",question);S.busy=true;renderChat();
   // model routing: heavy analysis/news -> Sonnet + web search; quick lookups -> Haiku (cheaper, faster)
   const HEAVY=/news|latest|injur|update|report|should|trade|rank|compar|advice|start|sit|drop|add|waiver|pickup|why|analy|best|worst|help|strateg|target|sleeper pick|buy|sell|value|rest of season|playoff/i;
   const heavy=HEAVY.test(question)||question.length>90||S.msgs.length>6;
@@ -432,9 +436,9 @@ async function ask(q){
     if(out&&out.error)throw new Error(out.error.message||"API error");
     const text=(out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()
       ||"Came back empty — try rephrasing.";
-    S.msgs.push({role:"assistant",content:text});
+    addMsg("assistant",text);
   }catch(e){
-    S.msgs.push({role:"assistant",content:"**Error:** "+e.message});
+    addMsg("assistant","**Error:** "+e.message);
   }finally{S.busy=false;renderChat();}
 }
 async function callClaude(body){
@@ -472,9 +476,8 @@ document.addEventListener("click",e=>{
 });
 
 // team sheet
-function openTeam(i){
+function teamBlockHtml(i){
   const l=S.data.leagues[i];
-  S.openLg=i;
   const list=a=>a.length?a.map(p=>'<div>'+esc(p.label).replace(/\[(OUT|IR|DOUBTFUL|NA|PUP|SUS)\]/,'<span class="hurtag">[$1]</span>')+'</div>').join(""):'<div style="color:var(--muted)">(none)</div>';
   const {issues,qs}=leagueIssues(l);
   let flagHtml="";
@@ -484,8 +487,12 @@ function openTeam(i){
     if(qs.length)f+="- Monitor [Q]: "+qs.map(p=>p.name).join(", ");
     flagHtml='<div class="sec" style="color:var(--red)">⚠ Lineup flags</div><div class="pl">'+mdToHtml(f)+'</div>';
   }
-  $("teamsheet").innerHTML=
-    '<button class="closex" onclick="closeModals()">✕</button>'+
+  const c=S.aiCache[l.id];
+  let news;
+  if(!S.key)news='<div class="note">Add your API key in ⚙ and this section auto-fills with news + start/sit.</div>';
+  else if(c&&c.text)news=mdToHtml(c.text)+newsRefreshBtn(i);
+  else news='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Pulling the latest on your guys…</div>';
+  return '<div class="msg ai" style="max-width:100%">'+
     '<div class="sheetttl">'+esc(l.name)+'</div>'+
     '<div class="sheetmeta">'+l.size+'-team · '+esc(l.scoring)+' · '+esc(l.record)+' · Rank '+l.rank+'/'+l.size+' · PF '+l.pf+
     (l.faabLeft!=null?' · FAAB $'+l.faabLeft+'/$'+l.budget:'')+
@@ -493,8 +500,12 @@ function openTeam(i){
     '<div class="sec">Starters</div><div class="pl">'+list(l.starters)+'</div>'+
     '<div class="sec">Bench</div><div class="pl">'+list(l.bench)+'</div>'+
     flagHtml+
-    '<div class="sec">Key news &amp; start/sit</div><div id="aiReview" class="pl"></div>';
-  $("teammodal").classList.add("show");
+    '<div class="sec">Key news &amp; start/sit</div><div class="pl" id="news-'+l.id+'">'+news+'</div></div>';
+}
+function openTeam(i){
+  S.feed=S.feed.filter(e=>!(e.t==="team"&&e.i===i));
+  S.feed.push({t:"team",i});
+  renderChat();
   loadNews(i,false);
 }
 function newsRefreshBtn(i){return '<button class="ghost" style="margin-top:10px" onclick="loadNews('+i+',true)">Refresh news</button>';}
@@ -522,14 +533,14 @@ function fetchNews(l){
 }
 async function loadNews(i,force){
   const l=S.data.leagues[i];
-  const box=$("aiReview");if(!box)return;
-  if(!S.key){box.innerHTML='<div class="note">Add your API key in ⚙ and this section auto-fills with the latest news on your players plus start/sit calls.</div>';return;}
-  if(force)delete S.aiCache[l.id];
+  if(!S.key)return;
+  const box=()=>document.getElementById("news-"+l.id);
+  if(force){delete S.aiCache[l.id];const d=box();if(d)d.innerHTML='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Pulling the latest on your guys…</div>';}
   const c=S.aiCache[l.id];
-  if(c&&c.text){box.innerHTML=mdToHtml(c.text)+newsRefreshBtn(i);return;}
-  box.innerHTML='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Pulling the latest on your guys…</div>';
+  if(c&&c.text){const d=box();if(d)d.innerHTML=mdToHtml(c.text)+newsRefreshBtn(i);return;}
   await fetchNews(l);
-  if(S.openLg===i){const b=$("aiReview");if(b&&S.aiCache[l.id]&&S.aiCache[l.id].text)b.innerHTML=mdToHtml(S.aiCache[l.id].text)+newsRefreshBtn(i);}
+  const d=box();
+  if(d&&S.aiCache[l.id]&&S.aiCache[l.id].text)d.innerHTML=mdToHtml(S.aiCache[l.id].text)+newsRefreshBtn(i);
 }
 // preload news for every drafted league, 3 at a time
 async function preloadAll(){
@@ -545,7 +556,11 @@ async function preloadAll(){
       const l=queue.shift();
       await fetchNews(l);
       done++;tick();
-      if(S.openLg!=null&&S.data.leagues[S.openLg]&&S.data.leagues[S.openLg].id===l.id)loadNews(S.openLg,false);
+      const d=document.getElementById("news-"+l.id);
+      if(d&&S.aiCache[l.id]&&S.aiCache[l.id].text){
+        const idx=S.data.leagues.findIndex(x=>x.id===l.id);
+        d.innerHTML=mdToHtml(S.aiCache[l.id].text)+newsRefreshBtn(idx);
+      }
     }
   }
   await Promise.all([worker(),worker(),worker()]);
