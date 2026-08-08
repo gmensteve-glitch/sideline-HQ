@@ -96,6 +96,7 @@ header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;a
     <div class="sub" id="sub">Every team. One search box.</div>
   </div>
   <div class="hbtns">
+    <button class="ghost" id="checkbtn" style="display:none">✓ Lineups</button>
     <button class="ghost" id="syncbtn" style="display:none">Re-sync</button>
     <button class="ghost" id="gear">⚙</button>
   </div>
@@ -169,7 +170,7 @@ const API="https://api.sleeper.app/v1";
 const S={user:localStorage.getItem("shq_user")||"stevenv123",
         key:localStorage.getItem("shq_key")||"",
         model:localStorage.getItem("shq_model")||"auto",
-        data:null,ctx:"",msgs:[],busy:false,searchIndex:[]};
+        data:null,ctx:"",msgs:[],busy:false,searchIndex:[],report:""};
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -196,10 +197,11 @@ function show(view){
   $("chat").style.display=ready?"flex":"none";
   $("askwrap").style.display=ready?"block":"none";
   $("syncbtn").style.display=ready?"":"none";
+  $("checkbtn").style.display=ready?"":"none";
 }
 
 async function sync(){
-  show("load"); S.msgs=[]; renderChat();
+  show("load"); S.msgs=[]; S.report=""; renderChat();
   try{
     stageSet(5,"Reading the NFL clock");
     const nfl=await jget(API+"/state/nfl");
@@ -265,6 +267,7 @@ async function sync(){
         scoring:scoringLabel(lg),status:lg.status,record:fmtRec(mine.settings),rank,
         faabLeft,budget,pf:Math.round(mine.settings?.fpts??0),
         starters:st,bench:bn,
+        empties:(mine.starters||[]).filter(x=>!x||x==="0").length,
         hurt:[...st,...bn].filter(p=>p.inj&&p.inj!=="Questionable"),
         opponent:oppName,myPts:mm?mm.points:null,oppPts:om?om.points:null};
     }).filter(Boolean).sort((a,b)=>b.season-a.season||a.name.localeCompare(b.name));
@@ -296,9 +299,8 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v2";
-    $("hintttl").textContent="All "+leagues.length+" teams loaded. Ask anything.";
-    renderRibbon();renderChips();
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v3";
+    renderRibbon();renderChat();
     stageSet(100,"Touchdown");
     setTimeout(()=>show("ready"),450);
   }catch(e){
@@ -317,14 +319,19 @@ function renderRibbon(){
     (l.hurt.length?'<span class="inj">⚠'+l.hurt.length+'</span>':'')+
     '</div></button>').join("");
 }
-const QUICK=["Which of my teams need the most help right now?",
-"Any OUT or IR players I'm still rostering anywhere?",
+const QUICK=["Any OUT or IR players I'm still rostering anywhere?",
 "Rank my teams from best to worst",
 "Who from the trending adds fits my rosters?",
 "Where am I thinnest at RB?",
 "What's the latest injury news that affects my teams?"];
-function renderChips(){
-  $("chips").innerHTML=QUICK.map(q=>'<button class="chip" onclick="ask('+JSON.stringify(q).replace(/"/g,"&quot;")+')">'+esc(q)+'</button>').join("");
+function chipsHtml(){
+  return '<button class="chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="checkLineups()">✓ Check all my lineups</button>'+
+    QUICK.map(q=>'<button class="chip" onclick="ask('+JSON.stringify(q).replace(/"/g,"&quot;")+')">'+esc(q)+'</button>').join("");
+}
+function hintHtml(){
+  return '<div class="hint"><div class="hintttl">'+
+    (S.data?("All "+S.data.leagues.length+" teams loaded. Ask anything."):"")+
+    '</div><div class="chips">'+chipsHtml()+'</div></div>';
 }
 
 function mdToHtml(t){
@@ -337,12 +344,53 @@ function mdToHtml(t){
   }).join("");
 }
 function renderChat(){
-  const hint=S.msgs.length===0?$("hint").outerHTML:"";
-  $("chat").innerHTML=(S.msgs.length===0?"":"")+
-    S.msgs.map(m=>'<div class="msg '+(m.role==="user"?"user":"ai")+'">'+(m.role==="user"?esc(m.content):mdToHtml(m.content))+'</div>').join("")+
-    (S.busy?'<div class="think">Reviewing the tape…</div>':"");
-  if(S.msgs.length===0&&!S.busy){$("chat").innerHTML=hint||$("chat").innerHTML;}
+  let html="";
+  if(S.report)html+='<div class="msg ai" style="max-width:100%">'+mdToHtml(S.report)+'</div>';
+  html+=S.msgs.map(m=>'<div class="msg '+(m.role==="user"?"user":"ai")+'">'+(m.role==="user"?esc(m.content):mdToHtml(m.content))+'</div>').join("");
+  if(S.busy)html+='<div class="think">Reviewing the tape…</div>';
+  $("chat").innerHTML=html||hintHtml();
   $("chat").scrollTop=$("chat").scrollHeight;
+}
+
+// ---- LINEUP CHECK: instant, free, no AI ----
+function checkLineups(){
+  if(!S.data)return;
+  const flagged=[],cautions=[],clean=[],predraft=[];
+  S.data.leagues.forEach(l=>{
+    if(!l.starters.length&&(l.status==="pre_draft"||l.status==="drafting")){predraft.push(l.name);return;}
+    const bad=l.starters.filter(p=>p.inj&&p.inj!=="Questionable");
+    const q=l.starters.filter(p=>p.inj==="Questionable");
+    const issues=[];
+    bad.forEach(p=>{
+      const opts=l.bench.filter(b=>b.pos===p.pos&&(!b.inj||b.inj==="Questionable")).slice(0,2);
+      issues.push("- **"+p.name+"** ("+p.pos+"·"+p.tm+") is **"+String(p.inj).toUpperCase()+"** in your starting lineup"+
+        (opts.length?" → bench options: "+opts.map(o=>o.name+(o.inj==="Questionable"?" [Q]":"")).join(", "):" → no healthy "+p.pos+" on your bench"));
+    });
+    if(l.empties>0)issues.push("- **"+l.empties+" empty starting slot"+(l.empties>1?"s":"")+"**");
+    if(issues.length)flagged.push({name:l.name,issues,qs:q});
+    else if(q.length)cautions.push({name:l.name,qs:q});
+    else clean.push(l.name);
+  });
+  let out="**LINEUP CHECK** — "+S.data.nfl.season_type+" week "+S.data.nfl.week+"\n\n";
+  if(flagged.length){
+    out+="⚠ **NEEDS ACTION ("+flagged.length+")**\n";
+    flagged.forEach(f=>{
+      out+="\n**"+f.name+"**\n"+f.issues.join("\n")+"\n";
+      if(f.qs.length)out+="- Monitor [Q]: "+f.qs.map(p=>p.name).join(", ")+"\n";
+    });
+    out+="\n";
+  }
+  if(cautions.length){
+    out+="👀 **MONITOR ("+cautions.length+")** — questionable starters, check closer to gametime\n";
+    cautions.forEach(c=>{out+="- **"+c.name+"**: "+c.qs.map(p=>p.name+" ("+p.pos+"·"+p.tm+")").join(", ")+"\n";});
+    out+="\n";
+  }
+  if(clean.length)out+="✅ **CLEAN ("+clean.length+")**: "+clean.join(" · ")+"\n";
+  if(predraft.length)out+="\n📝 Not drafted yet: "+predraft.join(" · ")+"\n";
+  if(!flagged.length&&!cautions.length)out+="\nAll set lineups look healthy. 🏈";
+  else out+="\nTap a team card and hit **AI start/sit review** for the judgment calls.";
+  S.report=out;
+  renderChat();
 }
 
 async function ask(q){
@@ -423,7 +471,8 @@ function openTeam(i){
     (l.opponent?'<br>This week vs '+esc(l.opponent):'')+'</div>'+
     '<div class="sec">Starters</div><div class="pl">'+list(l.starters)+'</div>'+
     '<div class="sec">Bench</div><div class="pl">'+list(l.bench)+'</div>'+
-    '<button class="primary" onclick="closeModals();ask(\'Give me a health check on my team in &quot;'+esc(l.name).replace(/'/g,"\\'")+'&quot; — lineup issues, weak spots, what to do this week.\')">Ask AI about this team</button>';
+    '<button class="primary" onclick="closeModals();ask(\'Do a start/sit review of my exact lineup in &quot;'+esc(l.name).replace(/'/g,"\\'")+'&quot; — check the latest news, injuries, and matchups, and tell me specifically which starters to swap with which bench players, or confirm the lineup is right.\')">AI start/sit review</button>'+
+    '<button class="primary" style="background:none;border:1px solid var(--line);color:var(--chalk)" onclick="closeModals();ask(\'Give me a health check on my team in &quot;'+esc(l.name).replace(/'/g,"\\'")+'&quot; — lineup issues, weak spots, what to do this week.\')">Full team health check</button>';
   $("teammodal").classList.add("show");
 }
 function closeModals(){$("teammodal").classList.remove("show");$("setmodal").classList.remove("show");}
@@ -445,6 +494,7 @@ function saveSettings(){
   closeModals();sync();
 }
 $("syncbtn").addEventListener("click",()=>sync());
+$("checkbtn").addEventListener("click",()=>checkLineups());
 
 sync();
 </script>
