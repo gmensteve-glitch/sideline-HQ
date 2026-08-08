@@ -50,6 +50,16 @@ header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;a
 .hintttl{font-family:var(--disp);font-size:20px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
 .chip{background:var(--panel2);border:1px solid var(--line);color:var(--chalk);border-radius:999px;padding:8px 14px;font-size:13px}
+.statline{font-family:var(--disp);font-size:15px;letter-spacing:1px;margin:10px 0 4px;padding:9px 12px;border-radius:8px;font-weight:600}
+.statline.ok{background:rgba(127,224,168,.12);color:var(--green)}
+.statline.warn{background:rgba(255,210,74,.12);color:var(--yellow)}
+.statline.bad{background:rgba(255,107,94,.14);color:var(--red)}
+details.sect{margin:8px 0;border:1px solid var(--line);border-radius:10px}
+details.sect summary{cursor:pointer;padding:9px 12px;font-family:var(--disp);letter-spacing:2px;text-transform:uppercase;font-size:12px;color:var(--yellow);list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.sect summary::-webkit-details-marker{display:none}
+details.sect summary .arr{color:var(--muted)}
+details.sect[open] summary .arr{transform:rotate(90deg)}
+details.sect .inner{padding:0 12px 12px}
 .tabs{display:flex;gap:6px;margin:12px 0 4px;flex-wrap:wrap}
 .tab{padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:none;color:var(--muted);font-family:var(--disp);letter-spacing:1px;font-size:12px;text-transform:uppercase;cursor:pointer}
 .tab.on{background:var(--yellow);color:#1A1A10;border-color:var(--yellow);font-weight:700}
@@ -338,7 +348,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v9";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v10";
     S.aiCache={};
     renderRibbon();
     checkLineups();
@@ -352,14 +362,16 @@ async function sync(){
 }
 
 function renderRibbon(){
-  $("ribbon").innerHTML=S.data.leagues.map((l,i)=>
-    '<button class="tcard" onclick="openTeam('+i+')">'+
+  $("ribbon").innerHTML=S.data.leagues.map((l,i)=>{
+    const {issues,qs}=leagueIssues(l);
+    const col=issues.length?"var(--red)":qs.length?"var(--yellow)":"var(--green)";
+    return '<button class="tcard" style="border-left:3px solid '+col+'" onclick="openTeam('+i+')">'+
     '<div class="tname">'+esc(l.name)+'</div>'+
     '<div class="tmeta"><span class="w">'+esc(l.record)+'</span>'+
     (l.rank?'<span>#'+l.rank+'</span>':'')+
     (l.faabLeft!=null?'<span class="f">$'+l.faabLeft+'</span>':'')+
     (l.hurt.length?'<span class="inj">⚠'+l.hurt.length+'</span>':'')+
-    '</div></button>').join("");
+    '</div></button>';}).join("");
 }
 const QUICK=["Any OUT or IR players I'm still rostering anywhere?",
 "Rank my teams from best to worst",
@@ -528,23 +540,29 @@ function tabContentHtml(i,tab){
   if(tab==="lineup"){
     const list=a=>a.length?a.map(p=>'<div>'+esc(p.label).replace(/\[(OUT|IR|DOUBTFUL|NA|PUP|SUS)\]/,'<span class="hurtag">[$1]</span>')+'</div>').join(""):'<div style="color:var(--muted)">(none)</div>';
     const {issues,qs}=leagueIssues(l);
+    const stat=issues.length?'<div class="statline bad">⚠ '+issues.length+' thing'+(issues.length>1?'s':'')+' need'+(issues.length>1?'':'s')+' fixing</div>'
+      :qs.length?'<div class="statline warn">👀 Watch '+qs.length+' questionable starter'+(qs.length>1?'s':'')+'</div>'
+      :'<div class="statline ok">✅ Lineup looks clean</div>';
     let flagHtml="";
     if(issues.length||qs.length){
       let f="";
       if(issues.length)f+=issues.join("\n")+"\n";
       if(qs.length)f+="- Monitor [Q]: "+qs.map(p=>p.name).join(", ");
-      flagHtml='<div class="sec" style="color:var(--red)">⚠ Flags</div><div class="pl">'+mdToHtml(f)+'</div>';
+      flagHtml='<div class="pl" style="margin:4px 0 8px">'+mdToHtml(f)+'</div>';
     }
+    const nDrops=l.activity?l.activity.drops.length:0,nAdds=l.activity?l.activity.adds.length:0;
     let act="";
-    if(l.activity&&(l.activity.drops.length||l.activity.adds.length)){
+    if(nDrops||nAdds){
       let a="";
-      if(l.activity.drops.length)a+='<div style="margin-bottom:6px"><b>Dropped:</b><br>'+l.activity.drops.map(d=>esc(d.label)+(d.clears?' <span style="color:var(--yellow)">⏳ clears '+esc(d.clears)+'</span>':' <span style="color:var(--green)">✓ free agent now</span>')).join("<br>")+'</div>';
-      if(l.activity.adds.length)a+='<div><b>Added:</b><br>'+l.activity.adds.map(x=>esc(x.label)+' <span style="color:var(--muted)">by '+esc(x.by)+(x.bid?" · $"+x.bid:"")+'</span>').join("<br>")+'</div>';
-      act='<div class="sec">League activity · last 10 days</div><div class="pl">'+a+'</div>';
+      if(nDrops)a+='<div style="margin-bottom:6px"><b>Dropped:</b><br>'+l.activity.drops.map(d=>esc(d.label)+(d.clears?' <span style="color:var(--yellow)">⏳ clears '+esc(d.clears)+'</span>':' <span style="color:var(--green)">✓ free agent now</span>')).join("<br>")+'</div>';
+      if(nAdds)a+='<div><b>Added:</b><br>'+l.activity.adds.map(x=>esc(x.label)+' <span style="color:var(--muted)">by '+esc(x.by)+(x.bid?" · $"+x.bid:"")+'</span>').join("<br>")+'</div>';
+      act='<details class="sect"><summary>League moves · '+(nDrops+nAdds)+' in 10 days <span class="arr">▸</span></summary><div class="inner pl">'+a+'</div></details>';
     }
-    return '<div class="sec">Starters</div><div class="pl">'+list(l.starters)+'</div>'+
-      '<div class="sec">Bench</div><div class="pl">'+list(l.bench)+'</div>'+flagHtml+
-      '<div class="sec">Recommendations</div><div class="pl" id="ai-'+l.id+'-lineup">'+aiSectionHtml(i,"lineup")+'</div>'+act;
+    return stat+flagHtml+
+      '<div class="sec">Do this</div><div class="pl" id="ai-'+l.id+'-lineup">'+aiSectionHtml(i,"lineup")+'</div>'+
+      '<details class="sect" open><summary>Starters · '+l.starters.length+' <span class="arr">▸</span></summary><div class="inner pl">'+list(l.starters)+'</div></details>'+
+      '<details class="sect"><summary>Bench · '+l.bench.length+' <span class="arr">▸</span></summary><div class="inner pl">'+list(l.bench)+'</div></details>'+
+      act;
   }
   return '<div class="pl" id="ai-'+l.id+'-'+tab+'">'+aiSectionHtml(i,tab)+'</div>';
 }
