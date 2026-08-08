@@ -348,7 +348,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v10";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v11";
     S.aiCache={};
     renderRibbon();
     checkLineups();
@@ -379,7 +379,7 @@ const QUICK=["Any OUT or IR players I'm still rostering anywhere?",
 "Where am I thinnest at RB?",
 "What's the latest injury news that affects my teams?"];
 function chipsHtml(){
-  return '<button class="chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="checkLineups()">✓ Check all my lineups</button>'+
+  return '<button class="chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="checkLineups(true)">✓ Full lineup report</button>'+
     QUICK.map(q=>'<button class="chip" onclick="ask('+JSON.stringify(q).replace(/"/g,"&quot;")+')">'+esc(q)+'</button>').join("");
 }
 function hintHtml(){
@@ -426,7 +426,7 @@ function leagueIssues(l){
   if(l.empties>0)issues.push("- **"+l.empties+" empty starting slot"+(l.empties>1?"s":"")+"**");
   return {issues,qs};
 }
-function checkLineups(){
+function checkLineups(full){
   if(!S.data)return;
   const flagged=[],cautions=[],clean=[],predraft=[];
   S.data.leagues.forEach(l=>{
@@ -436,6 +436,15 @@ function checkLineups(){
     else if(qs.length)cautions.push({name:l.name,qs});
     else clean.push(l.name);
   });
+  if(!full){
+    const parts=[];
+    if(flagged.length)parts.push("⚠ **Fix: "+flagged.map(f=>f.name).join(", ")+"**");
+    if(cautions.length)parts.push("👀 "+cautions.length+" to monitor");
+    if(clean.length)parts.push("✅ "+clean.length+" clean");
+    if(predraft.length)parts.push("📝 "+predraft.length+" not drafted");
+    S.report=parts.join(" · ")+(flagged.length?"\nTap the red cards to fix.":"");
+    renderChat();return;
+  }
   let out="**LINEUP CHECK** — "+S.data.nfl.season_type+" week "+S.data.nfl.week+"\n\n";
   if(flagged.length){
     out+="⚠ **NEEDS ACTION ("+flagged.length+")**\n";
@@ -683,7 +692,7 @@ function saveSettings(){
   closeModals();sync();
 }
 $("syncbtn").addEventListener("click",()=>sync());
-$("checkbtn").addEventListener("click",()=>checkLineups());
+$("checkbtn").addEventListener("click",()=>checkLineups(true));
 
 sync();
 </script>
