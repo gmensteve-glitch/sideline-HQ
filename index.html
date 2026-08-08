@@ -231,12 +231,14 @@ async function sync(){
     stageSet(30,"Scouting "+raw.length+" leagues");
     const week=Math.max(1,nfl.week||1);
     const per=await Promise.all(raw.map(async lg=>{
-      const [rosters,users,matchups]=await Promise.all([
+      const rounds=week>1?[week,week-1]:[1];
+      const [rosters,users,matchups,txnsNested]=await Promise.all([
         jget(API+"/league/"+lg.league_id+"/rosters").catch(()=>[]),
         jget(API+"/league/"+lg.league_id+"/users").catch(()=>[]),
-        jget(API+"/league/"+lg.league_id+"/matchups/"+week).catch(()=>[])
+        jget(API+"/league/"+lg.league_id+"/matchups/"+week).catch(()=>[]),
+        Promise.all(rounds.map(r=>jget(API+"/league/"+lg.league_id+"/transactions/"+r).catch(()=>[])))
       ]);
-      return {lg,rosters,users,matchups};
+      return {lg,rosters,users,matchups,txns:txnsNested.flat()};
     }));
     stageSet(55,"Downloading the player database");
     const allP=await jget(API+"/players/nfl");
@@ -244,7 +246,13 @@ async function sync(){
     const trending=await jget(API+"/players/nfl/trending/add?limit=15").catch(()=>[]);
 
     const need=new Set();
-    per.forEach(x=>x.rosters.forEach(r=>(r.players||[]).forEach(p=>need.add(p))));
+    per.forEach(x=>{
+      x.rosters.forEach(r=>(r.players||[]).forEach(p=>need.add(p)));
+      (x.txns||[]).forEach(t=>{
+        Object.keys(t.adds||{}).forEach(p=>need.add(p));
+        Object.keys(t.drops||{}).forEach(p=>need.add(p));
+      });
+    });
     trending.forEach(t=>need.add(t.player_id));
     const pmap={};
     need.forEach(id=>{
@@ -254,8 +262,28 @@ async function sync(){
               :{n:id,pos:"DEF",tm:id,inj:null};
     });
 
-    const leagues=per.map(({lg,rosters,users,matchups})=>{
+    const fmtD=ts=>new Date(ts).toLocaleDateString(undefined,{weekday:"short",month:"numeric",day:"numeric"});
+    const leagues=per.map(({lg,rosters,users,matchups,txns})=>{
       const uById={};users.forEach(u=>uById[u.user_id]=u);
+      const rById={};rosters.forEach(r=>rById[r.roster_id]=r);
+      const ownerName=rid=>{const r=rById[rid];const u=r?uById[r.owner_id]:null;return u?(u.metadata?.team_name||u.display_name||"?"):"?";};
+      const nowTs=Date.now();
+      const clearDays=lg.settings?.waiver_clear_days??2;
+      const drops=[],addsA=[];
+      (txns||[]).filter(t=>t.status==="complete"&&t.created>nowTs-10*86400000)
+        .sort((a,b)=>b.created-a.created).forEach(t=>{
+        Object.entries(t.drops||{}).forEach(([pid,rid])=>{
+          if(t.adds&&t.adds[pid])return;
+          const p=pmap[pid];if(!p)return;
+          const clearTs=t.created+clearDays*86400000;
+          drops.push({label:p.n+" ("+p.pos+"·"+p.tm+")",by:ownerName(rid),clears:clearTs>nowTs?fmtD(clearTs):null});
+        });
+        Object.entries(t.adds||{}).forEach(([pid,rid])=>{
+          const p=pmap[pid];if(!p)return;
+          addsA.push({label:p.n+" ("+p.pos+"·"+p.tm+")",by:ownerName(rid),bid:(t.settings&&t.settings.waiver_bid)||null});
+        });
+      });
+      const activity={drops:drops.slice(0,8),adds:addsA.slice(0,8)};
       const mine=rosters.find(r=>r.owner_id===user.user_id||(r.co_owners||[]).includes(user.user_id));
       if(!mine)return null;
       const standings=[...rosters].sort((a,b)=>(b.settings?.wins??0)-(a.settings?.wins??0)||(b.settings?.fpts??0)-(a.settings?.fpts??0));
@@ -278,7 +306,7 @@ async function sync(){
         starters:st,bench:bn,
         empties:(mine.starters||[]).filter(x=>!x||x==="0").length,
         hurt:[...st,...bn].filter(p=>p.inj&&p.inj!=="Questionable"),
-        opponent:oppName,myPts:mm?mm.points:null,oppPts:om?om.points:null};
+        opponent:oppName,myPts:mm?mm.points:null,oppPts:om?om.points:null,activity};
     }).filter(Boolean).sort((a,b)=>b.season-a.season||a.name.localeCompare(b.name));
 
     // search index: player -> where
@@ -304,11 +332,13 @@ async function sync(){
       l.opponent?("This week vs "+l.opponent+(l.myPts!=null?" ("+l.myPts+"–"+l.oppPts+")":"")):"",
       "STARTERS: "+(l.starters.map(p=>p.label).join(", ")||"(pre-draft / none set)"),
       "BENCH: "+(l.bench.map(p=>p.label).join(", ")||"(none)"),
-      l.hurt.length?("INJURED: "+l.hurt.map(p=>p.label).join(", ")):""
+      l.hurt.length?("INJURED: "+l.hurt.map(p=>p.label).join(", ")):"",
+      l.activity.drops.length?("RECENT DROPS (10d): "+l.activity.drops.map(d=>d.label+(d.clears?" [clears waivers "+d.clears+"]":" [free agent]")).join("; ")):"",
+      l.activity.adds.length?("RECENT ADDS (10d): "+l.activity.adds.map(a=>a.label+(a.bid?" $"+a.bid:"")).join("; ")):""
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v8";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v9";
     S.aiCache={};
     renderRibbon();
     checkLineups();
@@ -505,9 +535,16 @@ function tabContentHtml(i,tab){
       if(qs.length)f+="- Monitor [Q]: "+qs.map(p=>p.name).join(", ");
       flagHtml='<div class="sec" style="color:var(--red)">⚠ Flags</div><div class="pl">'+mdToHtml(f)+'</div>';
     }
+    let act="";
+    if(l.activity&&(l.activity.drops.length||l.activity.adds.length)){
+      let a="";
+      if(l.activity.drops.length)a+='<div style="margin-bottom:6px"><b>Dropped:</b><br>'+l.activity.drops.map(d=>esc(d.label)+(d.clears?' <span style="color:var(--yellow)">⏳ clears '+esc(d.clears)+'</span>':' <span style="color:var(--green)">✓ free agent now</span>')).join("<br>")+'</div>';
+      if(l.activity.adds.length)a+='<div><b>Added:</b><br>'+l.activity.adds.map(x=>esc(x.label)+' <span style="color:var(--muted)">by '+esc(x.by)+(x.bid?" · $"+x.bid:"")+'</span>').join("<br>")+'</div>';
+      act='<div class="sec">League activity · last 10 days</div><div class="pl">'+a+'</div>';
+    }
     return '<div class="sec">Starters</div><div class="pl">'+list(l.starters)+'</div>'+
       '<div class="sec">Bench</div><div class="pl">'+list(l.bench)+'</div>'+flagHtml+
-      '<div class="sec">Recommendations</div><div class="pl" id="ai-'+l.id+'-lineup">'+aiSectionHtml(i,"lineup")+'</div>';
+      '<div class="sec">Recommendations</div><div class="pl" id="ai-'+l.id+'-lineup">'+aiSectionHtml(i,"lineup")+'</div>'+act;
   }
   return '<div class="pl" id="ai-'+l.id+'-'+tab+'">'+aiSectionHtml(i,tab)+'</div>';
 }
@@ -541,7 +578,7 @@ function openTeam(i){
   loadTab(i,curTab(S.data.leagues[i].id),false);
 }
 const TAB_PROMPTS={
-  lineup:'For my team in "{L}" ONLY. Recommend my optimal starting lineup using the latest news and matchups. Output only: 1) SWAPS — each on one line as "Start X over Y — <one short reason>", or "No changes — lineup is optimal". 2) If any starters are Questionable, one line each with the pivot plan. Hard limit 8 lines. No preamble.',
+  lineup:'For my team in "{L}" ONLY. Recommend my optimal starting lineup using the latest news and matchups. Output only: 1) SWAPS — each on one line as "Start X over Y — <one short reason>", or "No changes — lineup is optimal". 2) If any starters are Questionable, one line each with the pivot plan. 3) If RECENT DROPS in this league includes a genuinely valuable player, ONE line starting "CLAIM ALERT:" with why and a FAAB number; otherwise omit. Hard limit 9 lines. No preamble.',
   waivers:'For my team in "{L}" ONLY. Using the trending adds and my roster needs: give me 3-5 waiver targets as "Name (POS·TM) — one-line why — FAAB $X of my remaining budget", then one line on who to drop. Nothing else.',
   news:'KEY NEWS for my rostered players in "{L}" from the past week only. One tight bullet per player that has real news (injury, role change, depth chart move). Skip everyone else entirely. Hard limit 10 bullets. No preamble.',
   recs:'Big-picture read on my team in "{L}": exactly 5 bullets — biggest strength, biggest weakness, one realistic trade idea, one stash/add idea, this week priority. One line each. No preamble.'
