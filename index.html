@@ -50,6 +50,9 @@ header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;a
 .hintttl{font-family:var(--disp);font-size:20px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
 .chip{background:var(--panel2);border:1px solid var(--line);color:var(--chalk);border-radius:999px;padding:8px 14px;font-size:13px}
+.pname{color:var(--cyan);font-weight:600}
+.chunk{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin:6px 0;display:flex;gap:8px;line-height:1.5}
+.chunk.claimc{border-color:var(--yellow);background:rgba(255,210,74,.08)}
 .statline{font-family:var(--disp);font-size:15px;letter-spacing:1px;margin:10px 0 4px;padding:9px 12px;border-radius:8px;font-weight:600}
 .statline.ok{background:rgba(127,224,168,.12);color:var(--green)}
 .statline.warn{background:rgba(255,210,74,.12);color:var(--yellow)}
@@ -348,7 +351,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v11";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v12";
     S.aiCache={};
     renderRibbon();
     checkLineups();
@@ -390,11 +393,17 @@ function hintHtml(){
 
 function mdToHtml(t){
   return String(t||"").split("\n").map(ln=>{
-    const b=/^\s*[-•*]\s+/.test(ln);
-    let c=esc(b?ln.replace(/^\s*[-•*]\s+/,""):ln).replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
-    if(!ln.trim())return'<div style="height:8px"></div>';
-    return b?'<div style="display:flex;gap:8px"><span class="bullet">▸</span><span>'+c+'</span></div>'
-            :'<div>'+c+'</div>';
+    if(!ln.trim())return "";
+    if(/^\s*-{3,}\s*$/.test(ln))return "";
+    const b=/^\s*[-•*▸]\s+/.test(ln);
+    let c=esc(b?ln.replace(/^\s*[-•*▸]\s+/,""):ln).replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
+    c=c.replace(/([A-Z][\w.'’-]+(?:\s+[A-Z][\w.'’-]+){0,2})(\s*(?:\[[A-Z]+\]\s*)?\((?:QB|RB|WR|TE|K|DST|DEF))/g,'<span class="pname">$1</span>$2');
+    const plain=ln.trim().replace(/\*/g,"");
+    if(/^(KEY NEWS|START\/?\s?SIT|SWAPS|WAIVER|TARGETS|DROPS?:?$|ADDS?:?$)/i.test(plain)&&plain.length<40)
+      return '<div class="sec">'+c.replace(/:\s*$/,"")+'</div>';
+    const claim=/claim alert/i.test(ln);
+    if(b||claim)return '<div class="chunk'+(claim?' claimc':'')+'"><span class="bullet">'+(claim?'🚨':'▸')+'</span><span>'+c+'</span></div>';
+    return '<div style="margin:5px 0">'+c+'</div>';
   }).join("");
 }
 function renderChat(){
@@ -616,7 +625,7 @@ function fetchTab(l,tab){
   if(c&&c.text)return Promise.resolve();
   if(c&&c.promise)return c.promise;
   const p=(async()=>{
-    const prompt=TAB_PROMPTS[tab].replace("{L}",l.name);
+    const prompt=TAB_PROMPTS[tab].replace("{L}",l.name)+" CRITICAL: never narrate your process or say what you are checking. First line of output must be content itself.";
     const body={model:"claude-sonnet-4-6",max_tokens:700,system:S.ctx,
       messages:[{role:"user",content:prompt}],
       tools:[{type:"web_search_20250305",name:"web_search"}]};
@@ -624,7 +633,11 @@ function fetchTab(l,tab){
       let out=await callClaude(body);
       if(out&&out.error&&/tool|web_search/i.test(out.error.message||"")){delete body.tools;out=await callClaude(body);}
       if(out&&out.error)throw new Error(out.error.message||"API error");
-      const text=(out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()||"Nothing came back — try refresh.";
+      let lines=((out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()).split("\n");
+      const junk=/^(now let me|let me|here (are|is)|i['’]?ll|first[, ]|okay|sure|alright|based on|i searched|i checked|checking|searching)/i;
+      while(lines.length&&(!lines[0].trim()||junk.test(lines[0].trim())||/^\s*-{3,}\s*$/.test(lines[0])))lines.shift();
+      lines=lines.filter(x=>!junk.test(x.trim())||/[—-]\s|\(/.test(x));
+      const text=lines.join("\n").trim()||"Nothing came back — try refresh.";
       S.aiCache[l.id][tab]={text};
     }catch(e){
       S.aiCache[l.id][tab]={text:"**Couldn't load:** "+e.message};
