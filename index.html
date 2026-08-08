@@ -170,7 +170,7 @@ const API="https://api.sleeper.app/v1";
 const S={user:localStorage.getItem("shq_user")||"stevenv123",
         key:localStorage.getItem("shq_key")||"",
         model:localStorage.getItem("shq_model")||"auto",
-        data:null,ctx:"",msgs:[],busy:false,searchIndex:[],report:""};
+        data:null,ctx:"",msgs:[],busy:false,searchIndex:[],report:"",aiCache:{},openLg:null};
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -299,8 +299,10 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v3";
-    renderRibbon();renderChat();
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v4";
+    S.aiCache={};
+    renderRibbon();
+    checkLineups();
     stageSet(100,"Touchdown");
     setTimeout(()=>show("ready"),450);
   }catch(e){
@@ -353,22 +355,26 @@ function renderChat(){
 }
 
 // ---- LINEUP CHECK: instant, free, no AI ----
+function leagueIssues(l){
+  const bad=l.starters.filter(p=>p.inj&&p.inj!=="Questionable");
+  const qs=l.starters.filter(p=>p.inj==="Questionable");
+  const issues=[];
+  bad.forEach(p=>{
+    const opts=l.bench.filter(b=>b.pos===p.pos&&(!b.inj||b.inj==="Questionable")).slice(0,2);
+    issues.push("- **"+p.name+"** ("+p.pos+"·"+p.tm+") is **"+String(p.inj).toUpperCase()+"** in your starting lineup"+
+      (opts.length?" → bench options: "+opts.map(o=>o.name+(o.inj==="Questionable"?" [Q]":"")).join(", "):" → no healthy "+p.pos+" on your bench"));
+  });
+  if(l.empties>0)issues.push("- **"+l.empties+" empty starting slot"+(l.empties>1?"s":"")+"**");
+  return {issues,qs};
+}
 function checkLineups(){
   if(!S.data)return;
   const flagged=[],cautions=[],clean=[],predraft=[];
   S.data.leagues.forEach(l=>{
     if(!l.starters.length&&(l.status==="pre_draft"||l.status==="drafting")){predraft.push(l.name);return;}
-    const bad=l.starters.filter(p=>p.inj&&p.inj!=="Questionable");
-    const q=l.starters.filter(p=>p.inj==="Questionable");
-    const issues=[];
-    bad.forEach(p=>{
-      const opts=l.bench.filter(b=>b.pos===p.pos&&(!b.inj||b.inj==="Questionable")).slice(0,2);
-      issues.push("- **"+p.name+"** ("+p.pos+"·"+p.tm+") is **"+String(p.inj).toUpperCase()+"** in your starting lineup"+
-        (opts.length?" → bench options: "+opts.map(o=>o.name+(o.inj==="Questionable"?" [Q]":"")).join(", "):" → no healthy "+p.pos+" on your bench"));
-    });
-    if(l.empties>0)issues.push("- **"+l.empties+" empty starting slot"+(l.empties>1?"s":"")+"**");
-    if(issues.length)flagged.push({name:l.name,issues,qs:q});
-    else if(q.length)cautions.push({name:l.name,qs:q});
+    const {issues,qs}=leagueIssues(l);
+    if(issues.length)flagged.push({name:l.name,issues,qs});
+    else if(qs.length)cautions.push({name:l.name,qs});
     else clean.push(l.name);
   });
   let out="**LINEUP CHECK** — "+S.data.nfl.season_type+" week "+S.data.nfl.week+"\n\n";
@@ -462,7 +468,16 @@ document.addEventListener("click",e=>{
 // team sheet
 function openTeam(i){
   const l=S.data.leagues[i];
+  S.openLg=i;
   const list=a=>a.length?a.map(p=>'<div>'+esc(p.label).replace(/\[(OUT|IR|DOUBTFUL|NA|PUP|SUS)\]/,'<span class="hurtag">[$1]</span>')+'</div>').join(""):'<div style="color:var(--muted)">(none)</div>';
+  const {issues,qs}=leagueIssues(l);
+  let flagHtml="";
+  if(issues.length||qs.length){
+    let f="";
+    if(issues.length)f+=issues.join("\n")+"\n";
+    if(qs.length)f+="- Monitor [Q]: "+qs.map(p=>p.name).join(", ");
+    flagHtml='<div class="sec" style="color:var(--red)">⚠ Lineup flags</div><div class="pl">'+mdToHtml(f)+'</div>';
+  }
   $("teamsheet").innerHTML=
     '<button class="closex" onclick="closeModals()">✕</button>'+
     '<div class="sheetttl">'+esc(l.name)+'</div>'+
@@ -471,11 +486,37 @@ function openTeam(i){
     (l.opponent?'<br>This week vs '+esc(l.opponent):'')+'</div>'+
     '<div class="sec">Starters</div><div class="pl">'+list(l.starters)+'</div>'+
     '<div class="sec">Bench</div><div class="pl">'+list(l.bench)+'</div>'+
-    '<button class="primary" onclick="closeModals();ask(\'Do a start/sit review of my exact lineup in &quot;'+esc(l.name).replace(/'/g,"\\'")+'&quot; — check the latest news, injuries, and matchups, and tell me specifically which starters to swap with which bench players, or confirm the lineup is right.\')">AI start/sit review</button>'+
-    '<button class="primary" style="background:none;border:1px solid var(--line);color:var(--chalk)" onclick="closeModals();ask(\'Give me a health check on my team in &quot;'+esc(l.name).replace(/'/g,"\\'")+'&quot; — lineup issues, weak spots, what to do this week.\')">Full team health check</button>';
+    flagHtml+
+    '<div class="sec">Key news &amp; start/sit</div><div id="aiReview" class="pl"></div>';
   $("teammodal").classList.add("show");
+  loadNews(i,false);
 }
-function closeModals(){$("teammodal").classList.remove("show");$("setmodal").classList.remove("show");}
+async function loadNews(i,force){
+  const l=S.data.leagues[i];
+  const box=$("aiReview");if(!box)return;
+  if(!S.key){box.innerHTML='<div class="note">Add your API key in ⚙ and this section auto-fills with the latest news on your players plus start/sit calls.</div>';return;}
+  const refresh='<button class="ghost" style="margin-top:10px" onclick="loadNews('+i+',true)">Refresh news</button>';
+  const c=S.aiCache[l.id];
+  if(c&&c.text&&!force){box.innerHTML=mdToHtml(c.text)+refresh;return;}
+  if(c&&c.busy)return;
+  S.aiCache[l.id]={busy:true};
+  box.innerHTML='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Pulling the latest on your guys…</div>';
+  const prompt='For my team in "'+l.name+'" ONLY. Two short sections: 1) KEY NEWS — the latest on my rostered players from this past week (injuries, role changes, depth chart moves, anything actionable), tight bullets, skip players with no news. 2) START/SIT — specific swap recommendations (who out, who in) or confirm the lineup is right. Be decisive and brief.';
+  const body={model:"claude-sonnet-4-6",max_tokens:900,system:S.ctx,
+    messages:[{role:"user",content:prompt}],
+    tools:[{type:"web_search_20250305",name:"web_search"}]};
+  try{
+    let out=await callClaude(body);
+    if(out&&out.error&&/tool|web_search/i.test(out.error.message||"")){delete body.tools;out=await callClaude(body);}
+    if(out&&out.error)throw new Error(out.error.message||"API error");
+    const text=(out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()||"No news came back — try refresh.";
+    S.aiCache[l.id]={text};
+  }catch(e){
+    S.aiCache[l.id]={text:"**Couldn't load news:** "+e.message};
+  }
+  if(S.openLg===i){const b=$("aiReview");if(b)b.innerHTML=mdToHtml(S.aiCache[l.id].text)+refresh;}
+}
+function closeModals(){S.openLg=null;$("teammodal").classList.remove("show");$("setmodal").classList.remove("show");}
 document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModals();}));
 
 // settings
