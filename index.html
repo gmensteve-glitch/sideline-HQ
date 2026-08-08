@@ -162,6 +162,10 @@ header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;a
     </select>
     <div class="note">Auto routes analysis, trades, and news questions to Claude Sonnet (with web search) and simple roster lookups to Claude Haiku at a fraction of the cost.</div>
   </div>
+  <div class="field">
+    <label style="display:flex;align-items:center;gap:10px;cursor:pointer"><input type="checkbox" id="set-preload" style="width:auto;accent-color:var(--yellow)"> Preload news &amp; start/sit for all teams on open</label>
+    <div class="note">When on (with an API key), every drafted league's news loads in the background right after sync, so team cards open instantly with everything ready. Turn off to load per-tap instead and save tokens.</div>
+  </div>
   <button class="primary" onclick="saveSettings()">Save &amp; sync</button>
 </div></div>
 
@@ -170,6 +174,7 @@ const API="https://api.sleeper.app/v1";
 const S={user:localStorage.getItem("shq_user")||"stevenv123",
         key:localStorage.getItem("shq_key")||"",
         model:localStorage.getItem("shq_model")||"auto",
+        preload:localStorage.getItem("shq_preload")!=="off",
         data:null,ctx:"",msgs:[],busy:false,searchIndex:[],report:"",aiCache:{},openLg:null};
 
 const $=id=>document.getElementById(id);
@@ -299,10 +304,11 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v4";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v5";
     S.aiCache={};
     renderRibbon();
     checkLineups();
+    if(S.preload)preloadAll();
     stageSet(100,"Touchdown");
     setTimeout(()=>show("ready"),450);
   }catch(e){
@@ -491,30 +497,59 @@ function openTeam(i){
   $("teammodal").classList.add("show");
   loadNews(i,false);
 }
+function newsRefreshBtn(i){return '<button class="ghost" style="margin-top:10px" onclick="loadNews('+i+',true)">Refresh news</button>';}
+function fetchNews(l){
+  const c=S.aiCache[l.id];
+  if(c&&c.text)return Promise.resolve();
+  if(c&&c.promise)return c.promise;
+  const p=(async()=>{
+    const prompt='For my team in "'+l.name+'" ONLY. Two short sections: 1) KEY NEWS — the latest on my rostered players from this past week (injuries, role changes, depth chart moves, anything actionable), tight bullets, skip players with no news. 2) START/SIT — specific swap recommendations (who out, who in) or confirm the lineup is right. Be decisive and brief.';
+    const body={model:"claude-sonnet-4-6",max_tokens:900,system:S.ctx,
+      messages:[{role:"user",content:prompt}],
+      tools:[{type:"web_search_20250305",name:"web_search"}]};
+    try{
+      let out=await callClaude(body);
+      if(out&&out.error&&/tool|web_search/i.test(out.error.message||"")){delete body.tools;out=await callClaude(body);}
+      if(out&&out.error)throw new Error(out.error.message||"API error");
+      const text=(out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()||"No news came back — try refresh.";
+      S.aiCache[l.id]={text};
+    }catch(e){
+      S.aiCache[l.id]={text:"**Couldn't load news:** "+e.message};
+    }
+  })();
+  S.aiCache[l.id]={busy:true,promise:p};
+  return p;
+}
 async function loadNews(i,force){
   const l=S.data.leagues[i];
   const box=$("aiReview");if(!box)return;
   if(!S.key){box.innerHTML='<div class="note">Add your API key in ⚙ and this section auto-fills with the latest news on your players plus start/sit calls.</div>';return;}
-  const refresh='<button class="ghost" style="margin-top:10px" onclick="loadNews('+i+',true)">Refresh news</button>';
+  if(force)delete S.aiCache[l.id];
   const c=S.aiCache[l.id];
-  if(c&&c.text&&!force){box.innerHTML=mdToHtml(c.text)+refresh;return;}
-  if(c&&c.busy)return;
-  S.aiCache[l.id]={busy:true};
+  if(c&&c.text){box.innerHTML=mdToHtml(c.text)+newsRefreshBtn(i);return;}
   box.innerHTML='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Pulling the latest on your guys…</div>';
-  const prompt='For my team in "'+l.name+'" ONLY. Two short sections: 1) KEY NEWS — the latest on my rostered players from this past week (injuries, role changes, depth chart moves, anything actionable), tight bullets, skip players with no news. 2) START/SIT — specific swap recommendations (who out, who in) or confirm the lineup is right. Be decisive and brief.';
-  const body={model:"claude-sonnet-4-6",max_tokens:900,system:S.ctx,
-    messages:[{role:"user",content:prompt}],
-    tools:[{type:"web_search_20250305",name:"web_search"}]};
-  try{
-    let out=await callClaude(body);
-    if(out&&out.error&&/tool|web_search/i.test(out.error.message||"")){delete body.tools;out=await callClaude(body);}
-    if(out&&out.error)throw new Error(out.error.message||"API error");
-    const text=(out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()||"No news came back — try refresh.";
-    S.aiCache[l.id]={text};
-  }catch(e){
-    S.aiCache[l.id]={text:"**Couldn't load news:** "+e.message};
+  await fetchNews(l);
+  if(S.openLg===i){const b=$("aiReview");if(b&&S.aiCache[l.id]&&S.aiCache[l.id].text)b.innerHTML=mdToHtml(S.aiCache[l.id].text)+newsRefreshBtn(i);}
+}
+// preload news for every drafted league, 3 at a time
+async function preloadAll(){
+  if(!S.key||!S.data)return;
+  const targets=S.data.leagues.filter(l=>l.starters.length);
+  if(!targets.length)return;
+  let done=0;const base=$("sub").textContent;
+  const tick=()=>{$("sub").textContent=base+" · 📰 "+done+"/"+targets.length;};
+  tick();
+  const queue=[...targets];
+  async function worker(){
+    while(queue.length){
+      const l=queue.shift();
+      await fetchNews(l);
+      done++;tick();
+      if(S.openLg!=null&&S.data.leagues[S.openLg]&&S.data.leagues[S.openLg].id===l.id)loadNews(S.openLg,false);
+    }
   }
-  if(S.openLg===i){const b=$("aiReview");if(b)b.innerHTML=mdToHtml(S.aiCache[l.id].text)+refresh;}
+  await Promise.all([worker(),worker(),worker()]);
+  $("sub").textContent=base+" · 📰 ready";
 }
 function closeModals(){S.openLg=null;$("teammodal").classList.remove("show");$("setmodal").classList.remove("show");}
 document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModals();}));
@@ -523,15 +558,18 @@ document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if
 $("gear").addEventListener("click",()=>{
   $("set-user").value=S.user;$("set-key").value=S.key;
   $("set-model").value=S.model;
+  $("set-preload").checked=S.preload;
   $("setmodal").classList.add("show");
 });
 function saveSettings(){
   S.user=$("set-user").value.trim()||"stevenv123";
   S.key=$("set-key").value.trim();
   S.model=$("set-model").value;
+  S.preload=$("set-preload").checked;
   localStorage.setItem("shq_user",S.user);
   localStorage.setItem("shq_key",S.key);
   localStorage.setItem("shq_model",S.model);
+  localStorage.setItem("shq_preload",S.preload?"on":"off");
   closeModals();sync();
 }
 $("syncbtn").addEventListener("click",()=>sync());
