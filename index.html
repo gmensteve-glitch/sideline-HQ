@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Sideline HQ</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+:root{
+  --bg:#0F1712; --panel:#17221B; --panel2:#1C2921; --line:rgba(214,228,216,.10);
+  --chalk:#E9F1EA; --muted:#93A498; --yellow:#FFD24A; --green:#7FE0A8; --red:#FF6B5E; --cyan:#7CC7E8;
+  --disp:'Barlow Condensed',sans-serif; --body:'Inter',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--chalk);font-family:var(--body);display:flex;flex-direction:column;overflow:hidden}
+button{font-family:inherit;cursor:pointer}
+input{font-family:inherit}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+input::placeholder{color:var(--muted);opacity:.8}
+
+header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0}
+.logo{font-family:var(--disp);font-weight:700;font-size:26px;letter-spacing:3px;text-transform:uppercase;line-height:1}
+.logo span{color:var(--yellow)}
+.sub{color:var(--muted);font-size:12px;margin-top:3px}
+.hbtns{display:flex;gap:8px}
+.ghost{background:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:6px 10px;font-size:12px;font-family:var(--disp);letter-spacing:2px;text-transform:uppercase}
+
+.center{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px}
+.drivewrap{width:100%;max-width:520px}
+.drive{position:relative;height:46px;border-radius:8px;overflow:hidden;border:1px solid var(--line);
+ background:repeating-linear-gradient(90deg,#14201A 0 9.5%,rgba(233,241,234,.10) 9.5% 10%)}
+.fill{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,rgba(127,224,168,.16),rgba(255,210,74,.28));transition:width .5s ease}
+.marker{position:absolute;top:0;bottom:0;width:3px;background:var(--yellow);box-shadow:0 0 12px var(--yellow);transition:left .5s ease}
+.dlabel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-size:15px;letter-spacing:2px;text-transform:uppercase}
+.dsub{margin-top:6px;text-align:center;font-family:var(--disp);color:var(--muted);font-size:13px;letter-spacing:3px;text-transform:uppercase}
+
+.errttl{font-family:var(--disp);font-size:22px;letter-spacing:2px;text-transform:uppercase;color:var(--red)}
+.errmsg{color:var(--muted);font-size:14px;text-align:center;max-width:360px;line-height:1.5}
+
+.ribbon{display:flex;gap:8px;overflow-x:auto;padding:10px 16px;border-bottom:1px solid var(--line);flex-shrink:0}
+.tcard{flex-shrink:0;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;color:var(--chalk);min-width:130px}
+.tname{font-family:var(--disp);font-size:14px;font-weight:600;letter-spacing:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:150px}
+.tmeta{font-size:11px;color:var(--muted);margin-top:2px;display:flex;gap:8px}
+.tmeta .w{color:var(--green)} .tmeta .f{color:var(--yellow)} .tmeta .inj{color:var(--red)}
+
+#chat{flex:1;overflow-y:auto;padding:16px 16px 8px;display:flex;flex-direction:column;gap:12px}
+.hint{margin:auto;text-align:center;max-width:520px}
+.hintttl{font-family:var(--disp);font-size:20px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
+.chip{background:var(--panel2);border:1px solid var(--line);color:var(--chalk);border-radius:999px;padding:8px 14px;font-size:13px}
+.msg{max-width:88%;border-radius:12px;padding:10px 14px;font-size:14px;line-height:1.55;overflow-wrap:break-word;white-space:pre-wrap}
+.msg.user{align-self:flex-end;background:rgba(255,210,74,.10);border:1px solid rgba(255,210,74,.35)}
+.msg.ai{align-self:flex-start;background:var(--panel);border:1px solid var(--line)}
+.msg.ai b{color:var(--chalk)}
+.bullet{color:var(--yellow)}
+.think{align-self:flex-start;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px;font-family:var(--disp);letter-spacing:2px;text-transform:uppercase;font-size:13px;color:var(--muted);animation:pulse 1.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.askwrap{padding:10px 16px calc(16px + env(safe-area-inset-bottom));border-top:1px solid var(--line);flex-shrink:0;position:relative}
+.askrow{display:flex;gap:8px}
+#q{flex:1;background:var(--panel);border:1px solid var(--line);color:var(--chalk);border-radius:10px;padding:12px 14px;font-size:16px;outline:none}
+#askbtn{background:var(--yellow);color:#1A1A10;border:none;border-radius:10px;padding:0 18px;font-weight:700;font-family:var(--disp);font-size:16px;letter-spacing:2px;text-transform:uppercase}
+#askbtn:disabled{background:var(--panel2);color:var(--muted)}
+
+#instant{position:absolute;left:16px;right:16px;bottom:100%;margin-bottom:6px;background:var(--panel2);border:1px solid var(--line);border-radius:12px;max-height:45vh;overflow-y:auto;display:none;box-shadow:0 -8px 30px rgba(0,0,0,.5)}
+.ihead{font-family:var(--disp);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);padding:10px 14px 4px}
+.irow{padding:10px 14px;border-top:1px solid var(--line);font-size:13px;line-height:1.5}
+.irow .pn{font-weight:600}
+.irow .where{color:var(--muted)}
+.irow .st{color:var(--green)} .irow .bn{color:var(--cyan)} .irow .hurtag{color:var(--red);font-weight:600}
+
+.modal{position:fixed;inset:0;background:rgba(6,10,8,.7);display:none;align-items:flex-end;justify-content:center;z-index:50}
+.modal.show{display:flex}
+.sheet{background:var(--panel);border:1px solid var(--line);border-radius:16px 16px 0 0;width:100%;max-width:560px;max-height:85vh;overflow-y:auto;padding:18px 18px calc(18px + env(safe-area-inset-bottom))}
+.sheetttl{font-family:var(--disp);font-size:20px;font-weight:700;letter-spacing:2px;text-transform:uppercase}
+.sheetmeta{color:var(--muted);font-size:13px;margin:4px 0 12px}
+.sec{font-family:var(--disp);font-size:13px;letter-spacing:2px;text-transform:uppercase;color:var(--yellow);margin:14px 0 6px}
+.pl{font-size:13px;line-height:1.7}
+.pl .hurtag{color:var(--red);font-weight:600}
+.field{margin-bottom:14px}
+.field label{display:block;font-family:var(--disp);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.field input{width:100%;background:var(--bg);border:1px solid var(--line);color:var(--chalk);border-radius:8px;padding:11px 12px;font-size:15px;outline:none}
+.note{font-size:12px;color:var(--muted);line-height:1.5;margin-top:4px}
+.primary{width:100%;background:var(--yellow);color:#1A1A10;border:none;border-radius:10px;padding:12px;font-weight:700;font-family:var(--disp);font-size:16px;letter-spacing:2px;text-transform:uppercase;margin-top:6px}
+.closex{float:right;background:none;border:none;color:var(--muted);font-size:20px;line-height:1}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">Sideline<span> HQ</span></div>
+    <div class="sub" id="sub">Every team. One search box.</div>
+  </div>
+  <div class="hbtns">
+    <button class="ghost" id="syncbtn" style="display:none">Re-sync</button>
+    <button class="ghost" id="gear">⚙</button>
+  </div>
+</header>
+
+<div class="center" id="loadview">
+  <div class="drivewrap">
+    <div class="drive">
+      <div class="fill" id="fill" style="width:0%"></div>
+      <div class="marker" id="marker" style="left:0%"></div>
+      <div class="dlabel" id="dlabel">Kickoff</div>
+    </div>
+    <div class="dsub" id="dsub">1st &amp; 10</div>
+  </div>
+</div>
+
+<div class="center" id="errview" style="display:none">
+  <div class="errttl">Flag on the play</div>
+  <div class="errmsg" id="errmsg"></div>
+  <button class="primary" style="max-width:200px" onclick="sync()">Retry</button>
+</div>
+
+<div class="ribbon" id="ribbon" style="display:none"></div>
+
+<div id="chat" style="display:none">
+  <div class="hint" id="hint">
+    <div class="hintttl" id="hintttl"></div>
+    <div class="chips" id="chips"></div>
+  </div>
+</div>
+
+<div class="askwrap" id="askwrap" style="display:none">
+  <div id="instant"></div>
+  <div class="askrow">
+    <input id="q" placeholder="Type a player to find him, or ask anything…" autocomplete="off" />
+    <button id="askbtn">Ask</button>
+  </div>
+</div>
+
+<!-- team sheet -->
+<div class="modal" id="teammodal"><div class="sheet" id="teamsheet"></div></div>
+
+<!-- settings sheet -->
+<div class="modal" id="setmodal"><div class="sheet">
+  <button class="closex" onclick="closeModals()">✕</button>
+  <div class="sheetttl">Settings</div>
+  <div class="sheetmeta">Saved on this device only.</div>
+  <div class="field">
+    <label>Sleeper username</label>
+    <input id="set-user" autocomplete="off" />
+  </div>
+  <div class="field">
+    <label>Anthropic API key (for AI answers)</label>
+    <input id="set-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
+    <div class="note">Optional. Without it, the app still syncs all your teams and the search box finds any player across every league instantly. Add a key from console.anthropic.com to unlock full AI answers.</div>
+  </div>
+  <button class="primary" onclick="saveSettings()">Save &amp; sync</button>
+</div></div>
+
+<script>
+const API="https://api.sleeper.app/v1";
+const S={user:localStorage.getItem("shq_user")||"stevenv123",
+        key:localStorage.getItem("shq_key")||"",
+        data:null,ctx:"",msgs:[],busy:false,searchIndex:[]};
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function jget(u){const r=await fetch(u);if(!r.ok)throw new Error(r.status+" on "+u);return r.json();}
+const fmtRec=s=>{if(!s)return"0-0";const w=s.wins||0,l=s.losses||0,t=s.ties||0;return t?w+"-"+l+"-"+t:w+"-"+l};
+function scoringLabel(lg){
+  const ppr=lg?.scoring_settings?.rec??0, tep=lg?.scoring_settings?.bonus_rec_te??0;
+  let s=ppr===1?"PPR":ppr===0.5?"Half PPR":ppr===0?"Standard":ppr+" PPR";
+  if(tep>0)s+=" +TEP";
+  const ty=lg?.settings?.type??0; if(ty===2)s+=" · Dynasty"; if(ty===1)s+=" · Keeper";
+  if((lg?.roster_positions||[]).includes("SUPER_FLEX"))s+=" · SF";
+  return s;
+}
+function stageSet(pct,label){$("fill").style.width=pct+"%";$("marker").style.left=pct+"%";
+  $("dlabel").textContent=label;
+  $("dsub").textContent="1st & 10 · Ball on the "+Math.min(50,Math.round(pct/2))+" yard line";}
+
+function show(view){
+  $("loadview").style.display=view==="load"?"flex":"none";
+  $("errview").style.display=view==="err"?"flex":"none";
+  const ready=view==="ready";
+  $("ribbon").style.display=ready?"flex":"none";
+  $("chat").style.display=ready?"flex":"none";
+  $("askwrap").style.display=ready?"block":"none";
+  $("syncbtn").style.display=ready?"":"none";
+}
+
+async function sync(){
+  show("load"); S.msgs=[]; renderChat();
+  try{
+    stageSet(5,"Reading the NFL clock");
+    const nfl=await jget(API+"/state/nfl");
+    stageSet(12,"Finding "+S.user);
+    const user=await jget(API+"/user/"+encodeURIComponent(S.user));
+    if(!user||!user.user_id)throw new Error("User not found");
+    stageSet(20,"Pulling your leagues");
+    const seasons=[...new Set([nfl.season,nfl.previous_season].filter(Boolean))];
+    const lists=await Promise.all(seasons.map(s=>jget(API+"/user/"+user.user_id+"/leagues/nfl/"+s).catch(()=>[])));
+    const seen=new Set(),raw=[];
+    lists.flat().forEach(lg=>{if(!seen.has(lg.league_id)){seen.add(lg.league_id);raw.push(lg);}});
+    if(!raw.length)throw new Error("No leagues found for "+S.user);
+    stageSet(30,"Scouting "+raw.length+" leagues");
+    const week=Math.max(1,nfl.week||1);
+    const per=await Promise.all(raw.map(async lg=>{
+      const [rosters,users,matchups]=await Promise.all([
+        jget(API+"/league/"+lg.league_id+"/rosters").catch(()=>[]),
+        jget(API+"/league/"+lg.league_id+"/users").catch(()=>[]),
+        jget(API+"/league/"+lg.league_id+"/matchups/"+week).catch(()=>[])
+      ]);
+      return {lg,rosters,users,matchups};
+    }));
+    stageSet(55,"Downloading the player database");
+    const allP=await jget(API+"/players/nfl");
+    stageSet(85,"Building your scouting report");
+    const trending=await jget(API+"/players/nfl/trending/add?limit=15").catch(()=>[]);
+
+    const need=new Set();
+    per.forEach(x=>x.rosters.forEach(r=>(r.players||[]).forEach(p=>need.add(p))));
+    trending.forEach(t=>need.add(t.player_id));
+    const pmap={};
+    need.forEach(id=>{
+      const p=allP[id];
+      pmap[id]=p?{n:p.full_name||((p.first_name||"")+" "+(p.last_name||"")).trim()||id,
+                  pos:p.position||"?",tm:p.team||"FA",inj:p.injury_status||null}
+              :{n:id,pos:"DEF",tm:id,inj:null};
+    });
+
+    const leagues=per.map(({lg,rosters,users,matchups})=>{
+      const uById={};users.forEach(u=>uById[u.user_id]=u);
+      const mine=rosters.find(r=>r.owner_id===user.user_id||(r.co_owners||[]).includes(user.user_id));
+      if(!mine)return null;
+      const standings=[...rosters].sort((a,b)=>(b.settings?.wins??0)-(a.settings?.wins??0)||(b.settings?.fpts??0)-(a.settings?.fpts??0));
+      const rank=standings.findIndex(r=>r.roster_id===mine.roster_id)+1;
+      const budget=lg.settings?.waiver_budget??0;
+      const faabLeft=budget?budget-(mine.settings?.waiver_budget_used??0):null;
+      const mm=matchups.find(m=>m.roster_id===mine.roster_id);
+      const om=mm?matchups.find(m=>m.matchup_id===mm.matchup_id&&m.roster_id!==mm.roster_id):null;
+      const orr=om?rosters.find(r=>r.roster_id===om.roster_id):null;
+      const oppName=orr?(uById[orr.owner_id]?.metadata?.team_name||uById[orr.owner_id]?.display_name||"Opponent"):null;
+      const starters=new Set(mine.starters||[]);
+      const P=id=>{const p=pmap[id]||{n:id,pos:"?",tm:"?"};
+        const tag=p.inj&&p.inj!=="Questionable"?" ["+p.inj.toUpperCase()+"]":(p.inj==="Questionable"?" [Q]":"");
+        return {id,name:p.n,pos:p.pos,tm:p.tm,inj:p.inj,label:p.n+" ("+p.pos+"·"+p.tm+")"+tag};};
+      const st=(mine.starters||[]).filter(x=>x&&x!=="0").map(P);
+      const bn=(mine.players||[]).filter(p=>!starters.has(p)).map(P);
+      return {id:lg.league_id,name:lg.name,season:lg.season,size:lg.total_rosters,
+        scoring:scoringLabel(lg),status:lg.status,record:fmtRec(mine.settings),rank,
+        faabLeft,budget,pf:Math.round(mine.settings?.fpts??0),
+        starters:st,bench:bn,
+        hurt:[...st,...bn].filter(p=>p.inj&&p.inj!=="Questionable"),
+        opponent:oppName,myPts:mm?mm.points:null,oppPts:om?om.points:null};
+    }).filter(Boolean).sort((a,b)=>b.season-a.season||a.name.localeCompare(b.name));
+
+    // search index: player -> where
+    const idx={};
+    leagues.forEach(l=>{
+      l.starters.forEach(p=>{(idx[p.name]=idx[p.name]||{p,where:[]}).where.push({lg:l.name,slot:"starter"});});
+      l.bench.forEach(p=>{(idx[p.name]=idx[p.name]||{p,where:[]}).where.push({lg:l.name,slot:"bench"});});
+    });
+    S.searchIndex=Object.values(idx);
+
+    const trendNames=trending.map(t=>{const p=pmap[t.player_id];
+      return p?p.n+" ("+p.pos+"·"+p.tm+", +"+t.count+" adds)":null;}).filter(Boolean);
+
+    S.ctx=[
+      "You are Steven's fantasy football assistant inside his personal Sleeper command center. He manages "+leagues.length+" Sleeper leagues under username "+S.user+". NFL state: season "+nfl.season+", "+nfl.season_type+" week "+nfl.week+".",
+      "Answer questions across ALL his teams. Always name the specific league(s). Be direct, concise, opinionated like a sharp co-manager. Use web search for current news/injuries/rankings when needed. Injury tags: [OUT]/[IR]/[DOUBTFUL]/[Q].",
+      "This data is read-only; if asked to execute a move, say you can flag it but his Sleeper agent executes.",
+      "","=== TRENDING ADDS ON SLEEPER (24h) ===",trendNames.join("; ")||"n/a","",
+      "=== STEVEN'S TEAMS ==="
+    ].concat(leagues.map((l,i)=>[
+      "--- ["+(i+1)+"] "+l.name+" ("+l.season+") ---",
+      l.size+"-team · "+l.scoring+" · "+l.status+" · Record "+l.record+" · Rank "+l.rank+"/"+l.size+" · PF "+l.pf+(l.faabLeft!=null?" · FAAB $"+l.faabLeft+"/$"+l.budget:""),
+      l.opponent?("This week vs "+l.opponent+(l.myPts!=null?" ("+l.myPts+"–"+l.oppPts+")":"")):"",
+      "STARTERS: "+(l.starters.map(p=>p.label).join(", ")||"(pre-draft / none set)"),
+      "BENCH: "+(l.bench.map(p=>p.label).join(", ")||"(none)"),
+      l.hurt.length?("INJURED: "+l.hurt.map(p=>p.label).join(", ")):""
+    ].filter(Boolean).join("\n"))).join("\n");
+
+    S.data={user,nfl,leagues};
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week;
+    $("hintttl").textContent="All "+leagues.length+" teams loaded. Ask anything.";
+    renderRibbon();renderChips();
+    stageSet(100,"Touchdown");
+    setTimeout(()=>show("ready"),450);
+  }catch(e){
+    $("errmsg").textContent=(e&&e.message)||String(e);
+    show("err");
+  }
+}
+
+function renderRibbon(){
+  $("ribbon").innerHTML=S.data.leagues.map((l,i)=>
+    '<button class="tcard" onclick="openTeam('+i+')">'+
+    '<div class="tname">'+esc(l.name)+'</div>'+
+    '<div class="tmeta"><span class="w">'+esc(l.record)+'</span>'+
+    (l.rank?'<span>#'+l.rank+'</span>':'')+
+    (l.faabLeft!=null?'<span class="f">$'+l.faabLeft+'</span>':'')+
+    (l.hurt.length?'<span class="inj">⚠'+l.hurt.length+'</span>':'')+
+    '</div></button>').join("");
+}
+const QUICK=["Which of my teams need the most help right now?",
+"Any OUT or IR players I'm still rostering anywhere?",
+"Rank my teams from best to worst",
+"Who from the trending adds fits my rosters?",
+"Where am I thinnest at RB?",
+"What's the latest injury news that affects my teams?"];
+function renderChips(){
+  $("chips").innerHTML=QUICK.map(q=>'<button class="chip" onclick="ask('+JSON.stringify(q).replace(/"/g,"&quot;")+')">'+esc(q)+'</button>').join("");
+}
+
+function mdToHtml(t){
+  return String(t||"").split("\n").map(ln=>{
+    const b=/^\s*[-•*]\s+/.test(ln);
+    let c=esc(b?ln.replace(/^\s*[-•*]\s+/,""):ln).replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
+    if(!ln.trim())return'<div style="height:8px"></div>';
+    return b?'<div style="display:flex;gap:8px"><span class="bullet">▸</span><span>'+c+'</span></div>'
+            :'<div>'+c+'</div>';
+  }).join("");
+}
+function renderChat(){
+  const hint=S.msgs.length===0?$("hint").outerHTML:"";
+  $("chat").innerHTML=(S.msgs.length===0?"":"")+
+    S.msgs.map(m=>'<div class="msg '+(m.role==="user"?"user":"ai")+'">'+(m.role==="user"?esc(m.content):mdToHtml(m.content))+'</div>').join("")+
+    (S.busy?'<div class="think">Reviewing the tape…</div>':"");
+  if(S.msgs.length===0&&!S.busy){$("chat").innerHTML=hint||$("chat").innerHTML;}
+  $("chat").scrollTop=$("chat").scrollHeight;
+}
+
+async function ask(q){
+  const question=(q??$("q").value).trim();
+  if(!question||S.busy||!S.ctx)return;
+  hideInstant();$("q").value="";
+  if(!S.key){
+    S.msgs.push({role:"user",content:question},
+      {role:"assistant",content:"**AI answers need an API key.** Tap ⚙ and paste an Anthropic API key (console.anthropic.com) to unlock full answers with live web search. Meanwhile, the search box still finds any player across all your teams instantly — just start typing a name."});
+    renderChat();return;
+  }
+  S.msgs.push({role:"user",content:question});S.busy=true;renderChat();
+  const body={model:"claude-sonnet-4-6",max_tokens:1500,system:S.ctx,
+    messages:S.msgs.map(m=>({role:m.role,content:m.content})),
+    tools:[{type:"web_search_20250305",name:"web_search"}]};
+  try{
+    let out=await callClaude(body);
+    if(out&&out.error&&/tool|web_search/i.test(out.error.message||"")){
+      delete body.tools;out=await callClaude(body);
+    }
+    if(out&&out.error)throw new Error(out.error.message||"API error");
+    const text=(out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()
+      ||"Came back empty — try rephrasing.";
+    S.msgs.push({role:"assistant",content:text});
+  }catch(e){
+    S.msgs.push({role:"assistant",content:"**Error:** "+e.message});
+  }finally{S.busy=false;renderChat();}
+}
+async function callClaude(body){
+  const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",
+    headers:{"Content-Type":"application/json","x-api-key":S.key,
+      "anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+    body:JSON.stringify(body)});
+  return r.json();
+}
+
+// instant local search
+function hideInstant(){$("instant").style.display="none";}
+$("q").addEventListener("input",()=>{
+  const v=$("q").value.trim().toLowerCase();
+  if(v.length<2||!S.data){hideInstant();return;}
+  const hits=S.searchIndex.filter(x=>x.p.name.toLowerCase().includes(v)).slice(0,8);
+  const lHits=S.data.leagues.map((l,i)=>({l,i})).filter(x=>x.l.name.toLowerCase().includes(v)).slice(0,4);
+  if(!hits.length&&!lHits.length){hideInstant();return;}
+  let html="";
+  if(hits.length){html+='<div class="ihead">On your rosters</div>'+hits.map(h=>{
+    const hurt=h.p.inj&&h.p.inj!=="Questionable";
+    return '<div class="irow"><span class="pn">'+esc(h.p.name)+'</span> <span class="where">('+esc(h.p.pos)+'·'+esc(h.p.tm)+')</span>'+
+      (hurt?' <span class="hurtag">'+esc(h.p.inj.toUpperCase())+'</span>':'')+
+      '<br><span class="where">'+h.where.map(w=>esc(w.lg)+' <span class="'+(w.slot==="starter"?"st":"bn")+'">('+w.slot+')</span>').join(" · ")+'</span></div>';
+  }).join("");}
+  if(lHits.length){html+='<div class="ihead">Your leagues</div>'+lHits.map(x=>
+    '<div class="irow" style="cursor:pointer" onclick="openTeam('+x.i+');hideInstant();">'+
+    '<span class="pn">'+esc(x.l.name)+'</span> <span class="where">'+esc(x.l.record)+' · #'+x.l.rank+'</span></div>').join("");}
+  $("instant").innerHTML=html;$("instant").style.display="block";
+});
+$("q").addEventListener("keydown",e=>{if(e.key==="Enter")ask();});
+$("askbtn").addEventListener("click",()=>ask());
+document.addEventListener("click",e=>{
+  if(!$("instant").contains(e.target)&&e.target!==$("q"))hideInstant();
+});
+
+// team sheet
+function openTeam(i){
+  const l=S.data.leagues[i];
+  const list=a=>a.length?a.map(p=>'<div>'+esc(p.label).replace(/\[(OUT|IR|DOUBTFUL|NA|PUP|SUS)\]/,'<span class="hurtag">[$1]</span>')+'</div>').join(""):'<div style="color:var(--muted)">(none)</div>';
+  $("teamsheet").innerHTML=
+    '<button class="closex" onclick="closeModals()">✕</button>'+
+    '<div class="sheetttl">'+esc(l.name)+'</div>'+
+    '<div class="sheetmeta">'+l.size+'-team · '+esc(l.scoring)+' · '+esc(l.record)+' · Rank '+l.rank+'/'+l.size+' · PF '+l.pf+
+    (l.faabLeft!=null?' · FAAB $'+l.faabLeft+'/$'+l.budget:'')+
+    (l.opponent?'<br>This week vs '+esc(l.opponent):'')+'</div>'+
+    '<div class="sec">Starters</div><div class="pl">'+list(l.starters)+'</div>'+
+    '<div class="sec">Bench</div><div class="pl">'+list(l.bench)+'</div>'+
+    '<button class="primary" onclick="closeModals();ask(\'Give me a health check on my team in &quot;'+esc(l.name).replace(/'/g,"\\'")+'&quot; — lineup issues, weak spots, what to do this week.\')">Ask AI about this team</button>';
+  $("teammodal").classList.add("show");
+}
+function closeModals(){$("teammodal").classList.remove("show");$("setmodal").classList.remove("show");}
+document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModals();}));
+
+// settings
+$("gear").addEventListener("click",()=>{
+  $("set-user").value=S.user;$("set-key").value=S.key;
+  $("setmodal").classList.add("show");
+});
+function saveSettings(){
+  S.user=$("set-user").value.trim()||"stevenv123";
+  S.key=$("set-key").value.trim();
+  localStorage.setItem("shq_user",S.user);
+  localStorage.setItem("shq_key",S.key);
+  closeModals();sync();
+}
+$("syncbtn").addEventListener("click",()=>sync());
+
+sync();
+</script>
+</body>
+</html>
