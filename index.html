@@ -305,7 +305,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v6";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v7";
     S.aiCache={};
     renderRibbon();
     checkLineups();
@@ -361,7 +361,11 @@ function renderChat(){
   }).join("");
   if(S.busy)html+='<div class="think">Reviewing the tape…</div>';
   $("chat").innerHTML=html||hintHtml();
-  $("chat").scrollTop=$("chat").scrollHeight;
+  const kids=$("chat").children;
+  if(kids.length){
+    const last=kids[kids.length-1];
+    $("chat").scrollTop=Math.max(0,last.offsetTop-$("chat").offsetTop-8);
+  }
 }
 
 // ---- LINEUP CHECK: instant, free, no AI ----
