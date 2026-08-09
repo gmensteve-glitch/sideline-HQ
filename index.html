@@ -275,7 +275,7 @@ async function sync(){
     stageSet(55,"Downloading the player database");
     const allP=await jget(API+"/players/nfl");
     stageSet(85,"Building your scouting report");
-    const trending=await jget(API+"/players/nfl/trending/add?limit=15").catch(()=>[]);
+    const trending=await jget(API+"/players/nfl/trending/add?limit=50").catch(()=>[]);
 
     const need=new Set();
     per.forEach(x=>{
@@ -349,8 +349,14 @@ async function sync(){
     });
     S.searchIndex=Object.values(idx);
 
-    const trendNames=trending.map(t=>{const p=pmap[t.player_id];
+    const trendNames=trending.slice(0,15).map(t=>{const p=pmap[t.player_id];
       return p?p.n+" ("+p.pos+"·"+p.tm+", +"+t.count+" adds)":null;}).filter(Boolean);
+    const byPos={QB:[],RB:[],WR:[],TE:[]};
+    trending.forEach(t=>{
+      const p=pmap[t.player_id];
+      if(p&&byPos[p.pos]&&byPos[p.pos].length<5)byPos[p.pos].push({name:p.n,pos:p.pos,tm:p.tm,count:t.count});
+    });
+    S.trend=byPos;S.whyMap={};
 
     S.ctx=[
       "You are Steven's fantasy football assistant inside his personal Sleeper command center. He manages "+leagues.length+" Sleeper leagues under username "+S.user+". NFL state: season "+nfl.season+", "+nfl.season_type+" week "+nfl.week+".",
@@ -370,8 +376,8 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v16";
-    S.aiCache={};S.pNews={};
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v17";
+    S.aiCache={};S.pNews={};S.whyFetched=false;
     renderRibbon();
     checkLineups();
     if(S.preload)preloadAll();
@@ -400,6 +406,42 @@ const QUICK=["Any OUT or IR players I'm still rostering anywhere?",
 "Who from the trending adds fits my rosters?",
 "Where am I thinnest at RB?",
 "What's the latest injury news that affects my teams?"];
+function waiverBoardMd(){
+  if(!S.trend)return "";
+  let out="\n\n**🔥 HOT ON WAIVERS** — most-added on Sleeper right now\n";
+  ["QB","RB","WR","TE"].forEach(pos=>{
+    const arr=S.trend[pos]||[];
+    if(!arr.length)return;
+    out+="\n**"+pos+"**\n";
+    arr.forEach(t=>{
+      const why=S.whyMap&&S.whyMap[t.name]?" — "+S.whyMap[t.name]:"";
+      out+="- "+t.name+" ("+t.pos+"·"+t.tm+") · +"+(t.count>=1000?Math.round(t.count/1000)+"k":t.count)+" adds"+why+"\n";
+    });
+  });
+  return out;
+}
+async function fetchWaiverWhys(){
+  if(!S.key||!S.trend||S.whyFetched)return;
+  S.whyFetched=true;
+  const names=[];
+  ["QB","RB","WR","TE"].forEach(pos=>(S.trend[pos]||[]).forEach(t=>names.push(t.name+" ("+t.pos+", "+t.tm+")")));
+  if(!names.length)return;
+  const body={model:pickModel("judgment"),max_tokens:800,
+    system:"You are a concise fantasy football analyst. Never narrate. Output content only.",
+    messages:[{role:"user",content:"These players are the most-added on fantasy waivers right now: "+names.join("; ")+". For EACH, exactly one line: \"Name: <short why he's hot + who should grab him>\". Nothing else."}],
+    tools:[{type:"web_search_20250305",name:"web_search"}]};
+  try{
+    let out=await callClaude(body);
+    if(out&&out.error&&/tool|web_search/i.test(out.error.message||"")){delete body.tools;out=await callClaude(body);}
+    if(out&&out.error)return;
+    const text=(out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n");
+    text.split("\n").forEach(ln=>{
+      const m=ln.replace(/^[-•▸\s]+/,"").match(/^\*?\*?([^:*]+?)\*?\*?\s*:\s*(.+)$/);
+      if(m)S.whyMap[m[1].trim()]=m[2].trim();
+    });
+    checkLineups(false);
+  }catch(e){}
+}
 function chipsHtml(){
   return '<button class="chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="checkLineups(true)">✓ Full lineup report</button>'+
     QUICK.map(q=>'<button class="chip" onclick="ask('+JSON.stringify(q).replace(/"/g,"&quot;")+')">'+esc(q)+'</button>').join("");
@@ -470,8 +512,10 @@ function checkLineups(full){
     if(cautions.length)parts.push("👀 "+cautions.length+" to monitor");
     if(clean.length)parts.push("✅ "+clean.length+" clean");
     if(predraft.length)parts.push("📝 "+predraft.length+" not drafted");
-    S.report=parts.join(" · ")+(flagged.length?"\nTap the red cards to fix.":"");
-    renderChat();return;
+    S.report=parts.join(" · ")+(flagged.length?"\nTap the red cards to fix.":"")+waiverBoardMd();
+    renderChat();
+    fetchWaiverWhys();
+    return;
   }
   let out="**LINEUP CHECK** — "+S.data.nfl.season_type+" week "+S.data.nfl.week+"\n\n";
   if(flagged.length){
@@ -722,7 +766,7 @@ function pickModel(task){
 const TAB_PROMPTS={
   lineup:'For my team in "{L}" ONLY. Recommend my optimal starting lineup using the latest news and matchups. Output only: 1) SWAPS — each on one line as "Start X over Y — <one short reason>", or "No changes — lineup is optimal". 2) If any starters are Questionable, one line each with the pivot plan. 3) If RECENT DROPS in this league includes a genuinely valuable player, ONE line starting "CLAIM ALERT:" with why and a FAAB number; otherwise omit. Hard limit 9 lines. No preamble.',
   waivers:'For my team in "{L}" ONLY. Using the trending adds and my roster needs: give me 3-5 waiver targets as "Name (POS·TM) — one-line why — FAAB $X of my remaining budget", then one line on who to drop. Nothing else.',
-  news:'KEY NEWS for my rostered players in "{L}" from the past week only. One tight bullet per player that has real news (injury, role change, depth chart move). Skip everyone else entirely. Hard limit 10 bullets. No preamble.',
+  news:'For EVERY player on my roster in "{L}", exactly one tight line formatted "Name (POS·TM): <content>". If he has real news from the past week (injury, role, depth chart), that is the content; otherwise a 4-6 word status like "healthy, locked-in starter". Starters first, then bench. One line per player, no player skipped, no preamble.',
   recs:'Big-picture read on my team in "{L}": exactly 5 bullets — biggest strength, biggest weakness, one realistic trade idea, one stash/add idea, this week priority. One line each. No preamble.'
 };
 function fetchTab(l,tab){
@@ -732,7 +776,7 @@ function fetchTab(l,tab){
   if(c&&c.promise)return c.promise;
   const p=(async()=>{
     const prompt=TAB_PROMPTS[tab].replace("{L}",l.name)+" CRITICAL: never narrate your process or say what you are checking. First line of output must be content itself.";
-    const body={model:pickModel(tab==="news"?"facts":"judgment"),max_tokens:700,system:S.ctx,
+    const body={model:pickModel(tab==="news"?"facts":"judgment"),max_tokens:tab==="news"?1400:700,system:S.ctx,
       messages:[{role:"user",content:prompt}],
       tools:[{type:"web_search_20250305",name:"web_search"}]};
     try{
