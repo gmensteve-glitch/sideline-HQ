@@ -578,6 +578,29 @@ function prow(p,i){
     inj+'<span class="chev">▾ news</span></div>'+
     '<div class="pnews" id="pn-'+lid+'-'+esc(String(p.id))+'"></div></div>';
 }
+function cachedPlayerLines(l,pid){
+  const p=[...l.starters,...l.bench].find(x=>String(x.id)===String(pid));
+  if(!p)return null;
+  const rep=S.aiCache[l.id]&&S.aiCache[l.id].news&&S.aiCache[l.id].news.text;
+  if(!rep)return null;
+  const last=p.name.split(" ").pop().toLowerCase();
+  const hits=rep.split("\n").filter(ln=>{
+    const s=ln.toLowerCase();
+    return s.includes(p.name.toLowerCase())||(last.length>3&&s.includes(last));
+  });
+  return hits.length?hits.join("\n"):null;
+}
+function deepDiveBtn(i,pid){return '<button class="ghost" style="margin-top:8px" onclick="deepDive('+i+',\''+pid+'\')">Deep dive</button>';}
+function deepDive(i,pid){
+  S.pNews=S.pNews||{};delete S.pNews[pid];
+  const l=S.data.leagues[i];
+  const el=document.getElementById("pn-"+l.id+"-"+pid);
+  if(el)el.innerHTML='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Deep diving…</div>';
+  fetchPlayerNews(i,pid).then(()=>{
+    const r=S.pNews[pid];
+    if(el&&r&&r.text)el.innerHTML=mdToHtml(r.text)+deepDiveBtn(i,pid);
+  });
+}
 function togglePN(i,pid){
   const l=S.data.leagues[i];
   const el=document.getElementById("pn-"+l.id+"-"+pid);
@@ -587,11 +610,13 @@ function togglePN(i,pid){
   if(!S.key){el.innerHTML='<div class="note">Add your API key in ⚙ for tap-to-see player news.</div>';return;}
   S.pNews=S.pNews||{};
   const c=S.pNews[pid];
-  if(c&&c.text){el.innerHTML=mdToHtml(c.text);return;}
+  if(c&&c.text){el.innerHTML=mdToHtml(c.text)+deepDiveBtn(i,pid);return;}
+  const cached=cachedPlayerLines(l,pid);
+  if(cached){el.innerHTML=mdToHtml(cached)+deepDiveBtn(i,pid);return;}
   el.innerHTML='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Getting the latest…</div>';
   fetchPlayerNews(i,pid).then(()=>{
     const r=S.pNews[pid];
-    if(el.style.display==="block"&&r&&r.text)el.innerHTML=mdToHtml(r.text);
+    if(el.style.display==="block"&&r&&r.text)el.innerHTML=mdToHtml(r.text)+deepDiveBtn(i,pid);
   });
 }
 function fetchPlayerNews(i,pid){
@@ -603,7 +628,7 @@ function fetchPlayerNews(i,pid){
   if(c&&c.text)return Promise.resolve();
   if(c&&c.promise)return c.promise;
   const pr=(async()=>{
-    const body={model:"claude-sonnet-4-6",max_tokens:400,
+    const body={model:pickModel("facts"),max_tokens:400,
       system:"You are a concise fantasy football analyst. Never narrate your process. Output starts directly with content.",
       messages:[{role:"user",content:"Latest on "+p.name+" ("+p.pos+", "+p.tm+") for fantasy football: 2-4 tight bullets from the past week (injury, role, depth chart), then one line starting VERDICT: for this week. Nothing else."}],
       tools:[{type:"web_search_20250305",name:"web_search"}]};
@@ -689,6 +714,11 @@ function openTeam(i){
   renderChat();
   loadTab(i,curTab(S.data.leagues[i].id),false);
 }
+function pickModel(task){
+  if(S.model==="max")return "claude-sonnet-4-6";
+  if(S.model==="budget")return "claude-haiku-4-5";
+  return task==="facts"?"claude-haiku-4-5":"claude-sonnet-4-6";
+}
 const TAB_PROMPTS={
   lineup:'For my team in "{L}" ONLY. Recommend my optimal starting lineup using the latest news and matchups. Output only: 1) SWAPS — each on one line as "Start X over Y — <one short reason>", or "No changes — lineup is optimal". 2) If any starters are Questionable, one line each with the pivot plan. 3) If RECENT DROPS in this league includes a genuinely valuable player, ONE line starting "CLAIM ALERT:" with why and a FAAB number; otherwise omit. Hard limit 9 lines. No preamble.',
   waivers:'For my team in "{L}" ONLY. Using the trending adds and my roster needs: give me 3-5 waiver targets as "Name (POS·TM) — one-line why — FAAB $X of my remaining budget", then one line on who to drop. Nothing else.',
@@ -702,7 +732,7 @@ function fetchTab(l,tab){
   if(c&&c.promise)return c.promise;
   const p=(async()=>{
     const prompt=TAB_PROMPTS[tab].replace("{L}",l.name)+" CRITICAL: never narrate your process or say what you are checking. First line of output must be content itself.";
-    const body={model:"claude-sonnet-4-6",max_tokens:700,system:S.ctx,
+    const body={model:pickModel(tab==="news"?"facts":"judgment"),max_tokens:700,system:S.ctx,
       messages:[{role:"user",content:prompt}],
       tools:[{type:"web_search_20250305",name:"web_search"}]};
     try{
