@@ -45,7 +45,7 @@ header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;a
 .tmeta{font-size:11px;color:var(--muted);margin-top:2px;display:flex;gap:8px}
 .tmeta .w{color:var(--green)} .tmeta .f{color:var(--yellow)} .tmeta .inj{color:var(--red)}
 
-#chat{flex:1;overflow-y:auto;padding:16px 16px 8px;display:flex;flex-direction:column;gap:12px}
+#chat{flex:1;overflow-y:auto;padding:16px 16px calc(16px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:12px}
 .hint{margin:auto;text-align:center;max-width:520px}
 .hintttl{font-family:var(--disp);font-size:20px;letter-spacing:2px;text-transform:uppercase;color:var(--muted)}
 .chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:16px}
@@ -163,14 +163,6 @@ details.sect .inner{padding:0 12px 12px}
   </div>
 </div>
 
-<div class="askwrap" id="askwrap" style="display:none">
-  <div id="instant"></div>
-  <div class="askrow">
-    <input id="q" placeholder="Type a player to find him, or ask anything…" autocomplete="off" />
-    <button id="askbtn">Ask</button>
-  </div>
-</div>
-
 <!-- team sheet -->
 <div class="modal" id="teammodal"><div class="sheet" id="teamsheet"></div></div>
 
@@ -236,7 +228,6 @@ function show(view){
   const ready=view==="ready";
   $("ribbon").style.display=ready?"flex":"none";
   $("chat").style.display=ready?"flex":"none";
-  $("askwrap").style.display=ready?"block":"none";
   $("syncbtn").style.display=ready?"":"none";
   $("checkbtn").style.display=ready?"":"none";
 }
@@ -377,7 +368,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v18";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v19";
     S.aiCache={};S.pNews={};S.whyFetched=false;
     renderRibbon();
     checkLineups();
@@ -444,12 +435,11 @@ async function fetchWaiverWhys(){
   }catch(e){}
 }
 function chipsHtml(){
-  return '<button class="chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="checkLineups(true)">✓ Full lineup report</button>'+
-    QUICK.map(q=>'<button class="chip" onclick="ask('+JSON.stringify(q).replace(/"/g,"&quot;")+')">'+esc(q)+'</button>').join("");
+  return '<button class="chip" style="border-color:var(--yellow);color:var(--yellow)" onclick="checkLineups(true)">✓ Full lineup report</button>';
 }
 function hintHtml(){
   return '<div class="hint"><div class="hintttl">'+
-    (S.data?("All "+S.data.leagues.length+" teams loaded. Ask anything."):"")+
+    (S.data?("All "+S.data.leagues.length+" teams loaded — tap a card up top."):"")+
     '</div><div class="chips">'+chipsHtml()+'</div></div>';
 }
 
@@ -543,9 +533,8 @@ function checkLineups(full){
 }
 
 async function ask(q){
-  const question=(q??$("q").value).trim();
+  const question=String(q||"").trim();
   if(!question||S.busy||!S.ctx)return;
-  hideInstant();$("q").value="";
   if(!S.key){
     addMsg("user",question);
     addMsg("assistant","**AI answers need an API key.** Tap ⚙ and paste an Anthropic API key (console.anthropic.com) to unlock full answers with live web search. Meanwhile, the search box still finds any player across all your teams instantly — just start typing a name.");
@@ -582,31 +571,7 @@ async function callClaude(body){
   return r.json();
 }
 
-// instant local search
-function hideInstant(){$("instant").style.display="none";}
-$("q").addEventListener("input",()=>{
-  const v=$("q").value.trim().toLowerCase();
-  if(v.length<2||!S.data){hideInstant();return;}
-  const hits=S.searchIndex.filter(x=>x.p.name.toLowerCase().includes(v)).slice(0,8);
-  const lHits=S.data.leagues.map((l,i)=>({l,i})).filter(x=>x.l.name.toLowerCase().includes(v)).slice(0,4);
-  if(!hits.length&&!lHits.length){hideInstant();return;}
-  let html="";
-  if(hits.length){html+='<div class="ihead">On your rosters</div>'+hits.map(h=>{
-    const hurt=h.p.inj&&h.p.inj!=="Questionable";
-    return '<div class="irow"><span class="pn">'+esc(h.p.name)+'</span> <span class="where">('+esc(h.p.pos)+'·'+esc(h.p.tm)+')</span>'+
-      (hurt?' <span class="hurtag">'+esc(h.p.inj.toUpperCase())+'</span>':'')+
-      '<br><span class="where">'+h.where.map(w=>esc(w.lg)+' <span class="'+(w.slot==="starter"?"st":"bn")+'">('+w.slot+')</span>').join(" · ")+'</span></div>';
-  }).join("");}
-  if(lHits.length){html+='<div class="ihead">Your leagues</div>'+lHits.map(x=>
-    '<div class="irow" style="cursor:pointer" onclick="openTeam('+x.i+');hideInstant();">'+
-    '<span class="pn">'+esc(x.l.name)+'</span> <span class="where">'+esc(x.l.record)+' · #'+x.l.rank+'</span></div>').join("");}
-  $("instant").innerHTML=html;$("instant").style.display="block";
-});
-$("q").addEventListener("keydown",e=>{if(e.key==="Enter")ask();});
-$("askbtn").addEventListener("click",()=>ask());
-document.addEventListener("click",e=>{
-  if(!$("instant").contains(e.target)&&e.target!==$("q"))hideInstant();
-});
+function hideInstant(){}
 
 // team sheet
 const POSC={QB:"#E8788A",RB:"#7FE0A8",WR:"#7CC7E8",TE:"#F5B45F",K:"#C9B6F2"};
