@@ -368,7 +368,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v20";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v21";
     S.aiCache={};S.pNews={};S.whyFetched=false;S.view={t:"home"};
     renderApp();
     fetchWaiverWhys();
@@ -584,10 +584,10 @@ function homeHtml(){
       '<span style="min-width:0"><div class="lgname">'+esc(l.name)+'</div>'+
       '<div class="lgsub">'+esc(l.record)+' · #'+l.rank+(l.faabLeft!=null?' · FAAB $'+l.faabLeft:'')+'</div></span>'+
       '<span class="lgstat" style="color:'+st.col+'">'+st.txt+'</span></button>').join("");
-  return (hurtRows?'<div class="big">🚑 Injured in your lineups</div>'+hurtRows:"")+
+  return '<div class="big" style="margin-top:4px">Your lineups</div>'+rows+
+    (hurtRows?'<div class="big">🚑 Injured in your lineups</div>'+hurtRows:"")+
     (cutRows?'<div class="big">🔔 Just cut — worth a look</div>'+cutRows:"")+
-    waiverBoardHtml()+
-    '<div class="big">Your leagues</div>'+rows;
+    waiverBoardHtml();
 }
 function refreshBtnHtml(i,tab){return '<button class="ghost" style="margin-top:10px" onclick="loadTab('+i+',\''+tab+'\',true)">Refresh</button>';}
 function aiSectionHtml(i,tab){
