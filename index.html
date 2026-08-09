@@ -351,7 +351,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v12";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v13";
     S.aiCache={};
     renderRibbon();
     checkLineups();
@@ -587,7 +587,7 @@ function tabContentHtml(i,tab){
 function blockInner(i){
   const l=S.data.leagues[i];
   const tab=curTab(l.id);
-  const tabs=["lineup","waivers","news","recs"].map(t=>
+  const tabs=["lineup","news","waivers","recs"].map(t=>
     '<button class="tab'+(t===tab?" on":"")+'" onclick="setTab('+i+',\''+t+'\')">'+tabLabel(t)+'</button>').join("");
   return '<div class="sheetttl">'+esc(l.name)+'</div>'+
     '<div class="sheetmeta">'+l.size+'-team · '+esc(l.scoring)+' · '+esc(l.record)+' · Rank '+l.rank+'/'+l.size+
@@ -661,22 +661,22 @@ async function loadTab(i,tab,force){
 // preload the default Lineup tab for every drafted league, 3 at a time
 async function preloadAll(){
   if(!S.key||!S.data)return;
-  const targets=S.data.leagues.filter(l=>l.starters.length);
-  if(!targets.length)return;
-  let done=0;const base=$("sub").textContent;
-  const tick=()=>{$("sub").textContent=base+" · 📰 "+done+"/"+targets.length;};
+  const drafted=S.data.leagues.filter(l=>l.starters.length);
+  if(!drafted.length)return;
+  const queue=[...drafted.map(l=>({l,tab:"lineup"})),...drafted.map(l=>({l,tab:"news"}))];
+  let done=0;const total=queue.length;const base=$("sub").textContent;
+  const tick=()=>{$("sub").textContent=base+" · 📰 "+done+"/"+total;};
   tick();
-  const queue=[...targets];
   async function worker(){
     while(queue.length){
-      const l=queue.shift();
-      await fetchTab(l,"lineup");
+      const {l,tab}=queue.shift();
+      await fetchTab(l,tab);
       done++;tick();
-      const d=document.getElementById("ai-"+l.id+"-lineup");
-      const r=S.aiCache[l.id]&&S.aiCache[l.id].lineup;
+      const d=document.getElementById("ai-"+l.id+"-"+tab);
+      const r=S.aiCache[l.id]&&S.aiCache[l.id][tab];
       if(d&&r&&r.text){
         const idx=S.data.leagues.findIndex(x=>x.id===l.id);
-        d.innerHTML=mdToHtml(r.text)+refreshBtnHtml(idx,"lineup");
+        d.innerHTML=mdToHtml(r.text)+refreshBtnHtml(idx,tab);
       }
     }
   }
