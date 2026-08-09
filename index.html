@@ -290,8 +290,9 @@ async function sync(){
     need.forEach(id=>{
       const p=allP[id];
       pmap[id]=p?{n:p.full_name||((p.first_name||"")+" "+(p.last_name||"")).trim()||id,
-                  pos:p.position||"?",tm:p.team||"FA",inj:p.injury_status||null}
-              :{n:id,pos:"DEF",tm:id,inj:null};
+                  pos:p.position||"?",tm:p.team||"FA",inj:p.injury_status||null,
+                  ib:p.injury_body_part||null,inote:p.injury_notes||null}
+              :{n:id,pos:"DEF",tm:id,inj:null,ib:null,inote:null};
     });
 
     const fmtD=ts=>new Date(ts).toLocaleDateString(undefined,{weekday:"short",month:"numeric",day:"numeric"});
@@ -329,7 +330,7 @@ async function sync(){
       const starters=new Set(mine.starters||[]);
       const P=id=>{const p=pmap[id]||{n:id,pos:"?",tm:"?"};
         const tag=p.inj&&p.inj!=="Questionable"?" ["+p.inj.toUpperCase()+"]":(p.inj==="Questionable"?" [Q]":"");
-        return {id,name:p.n,pos:p.pos,tm:p.tm,inj:p.inj,label:p.n+" ("+p.pos+"·"+p.tm+")"+tag};};
+        return {id,name:p.n,pos:p.pos,tm:p.tm,inj:p.inj,ib:p.ib,inote:p.inote,label:p.n+" ("+p.pos+"·"+p.tm+")"+tag};};
       const st=(mine.starters||[]).filter(x=>x&&x!=="0").map(P);
       const bn=(mine.players||[]).filter(p=>!starters.has(p)).map(P);
       return {id:lg.league_id,name:lg.name,season:lg.season,size:lg.total_rosters,
@@ -376,7 +377,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v17";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v18";
     S.aiCache={};S.pNews={};S.whyFetched=false;
     renderRibbon();
     checkLineups();
@@ -456,8 +457,10 @@ function mdToHtml(t){
   return String(t||"").split("\n").map(ln=>{
     if(!ln.trim())return "";
     if(/^\s*-{3,}\s*$/.test(ln))return "";
-    const b=/^\s*[-•*▸]\s+/.test(ln);
-    let c=esc(b?ln.replace(/^\s*[-•*▸]\s+/,""):ln).replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
+    const b=/^\s*[-•*▸]\s*/.test(ln);
+    const stripped=b?ln.replace(/^\s*[-•*▸]\s*/,""):ln;
+    if(!stripped.trim())return "";
+    let c=esc(stripped).replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>");
     c=c.replace(/([A-Z][\w.'’-]+(?:\s+[A-Z][\w.'’-]+){0,2})(\s*(?:\[[A-Z]+\]\s*)?\((?:QB|RB|WR|TE|K|DST|DEF))/g,'<span class="pname">$1</span>$2');
     const plain=ln.trim().replace(/\*/g,"");
     if(/^(KEY NEWS|START\/?\s?SIT|SWAPS|WAIVER|TARGETS|DROPS?:?$|ADDS?:?$)/i.test(plain)&&plain.length<40)
@@ -629,6 +632,8 @@ function cachedPlayerLines(l,pid){
   if(!rep)return null;
   const last=p.name.split(" ").pop().toLowerCase();
   const hits=rep.split("\n").filter(ln=>{
+    const body=ln.replace(/^[-•*▸\s]+/,"").trim();
+    if(!body||body.length<8)return false;
     const s=ln.toLowerCase();
     return s.includes(p.name.toLowerCase())||(last.length>3&&s.includes(last));
   });
@@ -651,17 +656,20 @@ function togglePN(i,pid){
   if(!el)return;
   if(el.style.display==="block"){el.style.display="none";return;}
   el.style.display="block";
-  if(!S.key){el.innerHTML='<div class="note">Add your API key in ⚙ for tap-to-see player news.</div>';return;}
+  const p=[...l.starters,...l.bench].find(x=>String(x.id)===String(pid));
+  if(!p){el.innerHTML="";return;}
+  let out="";
+  if(p.inj){
+    out+="**"+String(p.inj).toUpperCase()+"**"+(p.ib?" — "+p.ib:"")+"\n";
+    if(p.inote)out+=p.inote+"\n";
+  }else{
+    out+="**HEALTHY** — no injury designation\n";
+  }
   S.pNews=S.pNews||{};
   const c=S.pNews[pid];
-  if(c&&c.text){el.innerHTML=mdToHtml(c.text)+deepDiveBtn(i,pid);return;}
-  const cached=cachedPlayerLines(l,pid);
-  if(cached){el.innerHTML=mdToHtml(cached)+deepDiveBtn(i,pid);return;}
-  el.innerHTML='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Getting the latest…</div>';
-  fetchPlayerNews(i,pid).then(()=>{
-    const r=S.pNews[pid];
-    if(el.style.display==="block"&&r&&r.text)el.innerHTML=mdToHtml(r.text)+deepDiveBtn(i,pid);
-  });
+  const extra=(c&&c.text)?c.text:cachedPlayerLines(l,pid);
+  if(extra)out+="\n"+extra;
+  el.innerHTML=mdToHtml(out)+deepDiveBtn(i,pid);
 }
 function fetchPlayerNews(i,pid){
   const l=S.data.leagues[i];
