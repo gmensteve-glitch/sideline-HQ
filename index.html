@@ -370,7 +370,7 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v15";
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v16";
     S.aiCache={};S.pNews={};
     renderRibbon();
     checkLineups();
@@ -652,9 +652,10 @@ function tabContentHtml(i,tab){
     }
     const rosterInner=(l.starters.length?'<div class="rgroup">Starters</div>'+l.starters.map(p=>prow(p,i)).join(""):'<div style="color:var(--muted);font-size:13px">(no lineup set)</div>')+
       (l.bench.length?'<div class="rgroup">Bench</div>'+l.bench.map(p=>prow(p,i)).join(""):"");
-    return stat+flagHtml+
-      '<div class="sec">Do this</div><div class="pl" id="ai-'+l.id+'-lineup">'+aiSectionHtml(i,"lineup")+'</div>'+
+    return stat+
       '<details class="sect" open><summary>Roster · '+(l.starters.length+l.bench.length)+' <span class="arr">▸</span></summary><div class="inner">'+rosterInner+'</div></details>'+
+      flagHtml+
+      '<div class="sec">Do this</div><div class="pl" id="ai-'+l.id+'-lineup">'+aiSectionHtml(i,"lineup")+'</div>'+
       act;
   }
   return '<div class="pl" id="ai-'+l.id+'-'+tab+'">'+aiSectionHtml(i,tab)+'</div>';
