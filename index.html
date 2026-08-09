@@ -54,6 +54,16 @@ header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;a
 .chunk{background:var(--panel2);border:none;border-left:3px solid rgba(214,228,216,.18);border-radius:8px;padding:8px 12px;margin:6px 0;display:flex;gap:8px;line-height:1.5}
 .chunk.claimc{border-left-color:var(--yellow);background:rgba(255,210,74,.08)}
 .rgroup{font-family:var(--disp);font-size:11px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:10px 0 4px}
+.pcard{border-bottom:1px dashed rgba(214,228,216,.07)}
+.pcard:last-child{border-bottom:none}
+.prow2{display:flex;align-items:center;gap:11px;padding:8px 2px;cursor:pointer}
+.phead{position:relative;width:44px;height:44px;flex-shrink:0}
+.phead img{width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--panel2)}
+.pbadge{position:absolute;bottom:-3px;left:-3px;font-family:var(--disp);font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;color:#101512}
+.pn3{font-weight:600;font-size:14px;color:var(--chalk)}
+.psub{font-size:11px;color:var(--muted);margin-top:1px}
+.chev{margin-left:auto;color:var(--muted);font-size:12px;flex-shrink:0}
+.pnews{display:none;padding:0 2px 10px 55px;font-size:13px}
 .prow{display:flex;align-items:center;gap:9px;padding:5px 2px;border-bottom:1px dashed rgba(214,228,216,.07);font-size:13px}
 .prow:last-child{border-bottom:none}
 .pos{font-family:var(--disp);font-size:11px;min-width:34px;text-align:center;border-radius:5px;padding:2px 4px;font-weight:700;color:#101512}
@@ -360,8 +370,8 @@ async function sync(){
     ].filter(Boolean).join("\n"))).join("\n");
 
     S.data={user,nfl,leagues};
-    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v14";
-    S.aiCache={};
+    $("sub").textContent="@"+(user.display_name||S.user)+" · "+leagues.length+" teams · "+nfl.season_type+" wk "+nfl.week+" · v15";
+    S.aiCache={};S.pNews={};
     renderRibbon();
     checkLineups();
     if(S.preload)preloadAll();
@@ -553,10 +563,60 @@ document.addEventListener("click",e=>{
 
 // team sheet
 const POSC={QB:"#E8788A",RB:"#7FE0A8",WR:"#7CC7E8",TE:"#F5B45F",K:"#C9B6F2"};
-function prow(p){
+function prow(p,i){
   const col=POSC[p.pos]||"#9AA5B1";
+  const lid=S.data.leagues[i].id;
+  const img=p.pos==="DEF"
+    ?'https://sleepercdn.com/images/team_logos/nfl/'+String(p.id).toLowerCase()+'.png'
+    :'https://sleepercdn.com/content/nfl/players/thumb/'+p.id+'.jpg';
   const inj=p.inj?(p.inj==="Questionable"?'<span class="ipill q">Q</span>':'<span class="ipill bad">'+esc(String(p.inj).toUpperCase())+'</span>'):"";
-  return '<div class="prow"><span class="pos" style="background:'+col+'">'+esc(p.pos)+'</span><span class="pn2">'+esc(p.name)+'</span><span class="ptm">'+esc(p.tm)+'</span>'+inj+'</div>';
+  return '<div class="pcard">'+
+    '<div class="prow2" onclick="togglePN('+i+',\''+esc(String(p.id))+'\')">'+
+    '<div class="phead"><img src="'+img+'" loading="lazy" onerror="this.src=\'https://sleepercdn.com/images/v2/icons/player_default.webp\'">'+
+    '<span class="pbadge" style="background:'+col+'">'+esc(p.pos)+'</span></div>'+
+    '<div><div class="pn3">'+esc(p.name)+'</div><div class="psub">'+esc(p.pos)+' ('+esc(p.tm)+')</div></div>'+
+    inj+'<span class="chev">▾ news</span></div>'+
+    '<div class="pnews" id="pn-'+lid+'-'+esc(String(p.id))+'"></div></div>';
+}
+function togglePN(i,pid){
+  const l=S.data.leagues[i];
+  const el=document.getElementById("pn-"+l.id+"-"+pid);
+  if(!el)return;
+  if(el.style.display==="block"){el.style.display="none";return;}
+  el.style.display="block";
+  if(!S.key){el.innerHTML='<div class="note">Add your API key in ⚙ for tap-to-see player news.</div>';return;}
+  S.pNews=S.pNews||{};
+  const c=S.pNews[pid];
+  if(c&&c.text){el.innerHTML=mdToHtml(c.text);return;}
+  el.innerHTML='<div class="note" style="animation:pulse 1.4s ease-in-out infinite">Getting the latest…</div>';
+  fetchPlayerNews(i,pid).then(()=>{
+    const r=S.pNews[pid];
+    if(el.style.display==="block"&&r&&r.text)el.innerHTML=mdToHtml(r.text);
+  });
+}
+function fetchPlayerNews(i,pid){
+  const l=S.data.leagues[i];
+  const p=[...l.starters,...l.bench].find(x=>String(x.id)===String(pid));
+  if(!p)return Promise.resolve();
+  S.pNews=S.pNews||{};
+  const c=S.pNews[pid];
+  if(c&&c.text)return Promise.resolve();
+  if(c&&c.promise)return c.promise;
+  const pr=(async()=>{
+    const body={model:"claude-sonnet-4-6",max_tokens:400,
+      system:"You are a concise fantasy football analyst. Never narrate your process. Output starts directly with content.",
+      messages:[{role:"user",content:"Latest on "+p.name+" ("+p.pos+", "+p.tm+") for fantasy football: 2-4 tight bullets from the past week (injury, role, depth chart), then one line starting VERDICT: for this week. Nothing else."}],
+      tools:[{type:"web_search_20250305",name:"web_search"}]};
+    try{
+      let out=await callClaude(body);
+      if(out&&out.error&&/tool|web_search/i.test(out.error.message||"")){delete body.tools;out=await callClaude(body);}
+      if(out&&out.error)throw new Error(out.error.message||"API error");
+      const text=(out.content||[]).filter(b=>b.type==="text").map(b=>b.text).join("\n").trim()||"No recent news found.";
+      S.pNews[pid]={text};
+    }catch(e){S.pNews[pid]={text:"**Couldn't load:** "+e.message};}
+  })();
+  S.pNews[pid]={busy:true,promise:pr};
+  return pr;
 }
 function tabLabel(t){return {lineup:"Lineup",waivers:"Waivers",news:"News",recs:"Recs"}[t];}
 function curTab(id){return (S.tabSel&&S.tabSel[id])||"lineup";}
@@ -590,8 +650,8 @@ function tabContentHtml(i,tab){
       if(nAdds)a+='<div><b>Added:</b><br>'+l.activity.adds.map(x=>esc(x.label)+' <span style="color:var(--muted)">by '+esc(x.by)+(x.bid?" · $"+x.bid:"")+'</span>').join("<br>")+'</div>';
       act='<details class="sect"><summary>League moves · '+(nDrops+nAdds)+' in 10 days <span class="arr">▸</span></summary><div class="inner pl">'+a+'</div></details>';
     }
-    const rosterInner=(l.starters.length?'<div class="rgroup">Starters</div>'+l.starters.map(prow).join(""):'<div style="color:var(--muted);font-size:13px">(no lineup set)</div>')+
-      (l.bench.length?'<div class="rgroup">Bench</div>'+l.bench.map(prow).join(""):"");
+    const rosterInner=(l.starters.length?'<div class="rgroup">Starters</div>'+l.starters.map(p=>prow(p,i)).join(""):'<div style="color:var(--muted);font-size:13px">(no lineup set)</div>')+
+      (l.bench.length?'<div class="rgroup">Bench</div>'+l.bench.map(p=>prow(p,i)).join(""):"");
     return stat+flagHtml+
       '<div class="sec">Do this</div><div class="pl" id="ai-'+l.id+'-lineup">'+aiSectionHtml(i,"lineup")+'</div>'+
       '<details class="sect" open><summary>Roster · '+(l.starters.length+l.bench.length)+' <span class="arr">▸</span></summary><div class="inner">'+rosterInner+'</div></details>'+
