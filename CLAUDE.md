@@ -5,6 +5,13 @@ server. Deployed by GitHub Pages **from `main`** → https://gmensteve-glitch.gi
 
 **Commit to `main` and push.** Anything on a branch never reaches the site.
 
+## Working across devices
+
+This repo is edited from more than one machine (and sometimes from github.dev
+in a browser). **Always `git pull` before making changes** — `index.html` is one
+60KB file, so a divergent edit means hand-resolving a conflict in it rather than
+a clean auto-merge. Push as soon as a change is done; don't sit on local commits.
+
 ## Goal
 
 Cut the time spent setting lineups and working waivers across ~22 Sleeper
