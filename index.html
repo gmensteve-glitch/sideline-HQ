@@ -240,7 +240,7 @@ const S={
   thresh:parseFloat(localStorage.getItem("shq_thresh")||"1.5"),
   leagueOrder:JSON.parse(localStorage.getItem("shq_lg_order")||"[]"),
   hiddenLeagues:JSON.parse(localStorage.getItem("shq_hidden_leagues")||"[]"),
-  data:null,view:{t:"home",manageLeagues:false},pNews:{},waiverWhy:{}
+  data:null,force:false,view:{t:"home",manageLeagues:false},pNews:{},waiverWhy:{}
 };
 const $=id=>document.getElementById(id);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -289,7 +289,7 @@ async function kvGet(k){try{const db=await idb();return await new Promise(res=>{
   const q=db.transaction("kv").objectStore("kv").get(k);q.onsuccess=()=>res(q.result||null);q.onerror=()=>res(null);});}catch(e){return null;}}
 async function kvSet(k,v){try{const db=await idb();db.transaction("kv","readwrite").objectStore("kv").put(v,k);}catch(e){}}
 async function cached(key,ttlMs,fetcher){
-  const hit=await kvGet(key);
+  const hit=S.force?null:await kvGet(key);
   if(hit&&hit.ts&&Date.now()-hit.ts<ttlMs)return hit.data;
   const data=await fetcher();
   kvSet(key,{ts:Date.now(),data});
@@ -363,7 +363,9 @@ async function sync(){
 
     stageSet(22,"Pulling your leagues");
     const seasons=[...new Set([nfl.season,nfl.previous_season].filter(Boolean))];
-    const lists=await Promise.all(seasons.map(s=>jget(API+"/v1/user/"+user.user_id+"/leagues/nfl/"+s).catch(()=>[])));
+    const lists=await Promise.all(seasons.map(s=>
+      cached("lgs_"+user.user_id+"_"+s,12*3600*1000,
+        ()=>jget(API+"/v1/user/"+user.user_id+"/leagues/nfl/"+s)).catch(()=>[])));
     const seen=new Set(),all=[];
     lists.flat().forEach(lg=>{if(!seen.has(lg.league_id)){seen.add(lg.league_id);all.push(lg);}});
     const cur=all.filter(lg=>String(lg.season)===String(nfl.season)&&lg.status!=="complete");
@@ -372,21 +374,26 @@ async function sync(){
 
     stageSet(32,"Scouting "+raw.length+" leagues");
     const per=await Promise.all(raw.map(async lg=>{
-      const rounds=week>1?[week,week-1]:[week];
-      const [rosters,users,txnsNested]=await Promise.all([
+      // /users was only ever read by the old activity feed — nothing uses it now.
+      // transactions only drive waiver clear-times, so undrafted leagues skip them.
+      const predraft=lg.status==="pre_draft"||lg.status==="drafting";
+      const rounds=predraft?[]:(week>1?[week,week-1]:[week]);
+      const [rosters,txnsNested]=await Promise.all([
         jget(API+"/v1/league/"+lg.league_id+"/rosters").catch(()=>[]),
-        jget(API+"/v1/league/"+lg.league_id+"/users").catch(()=>[]),
         Promise.all(rounds.map(r=>jget(API+"/v1/league/"+lg.league_id+"/transactions/"+r).catch(()=>[])))
       ]);
-      return {lg,rosters,users,txns:txnsNested.flat()};
+      return {lg,rosters,txns:txnsNested.flat()};
     }));
 
     stageSet(50,"Loading the player database");
     const allP=await cached("players_nfl",24*3600*1000,()=>jget(API+"/v1/players/nfl"));
 
     stageSet(72,"Pulling week "+week+" projections");
-    const projRaw=await jget(API+"/projections/nfl/"+season+"/"+week
-      +"?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF&order_by=pts_ppr");
+    // 2.15MB and only revised a few times a week — the single biggest payload
+    // after the player DB, so cache it per season+week
+    const projRaw=await cached("proj_"+season+"_"+week,6*3600*1000,()=>
+      jget(API+"/projections/nfl/"+season+"/"+week
+        +"?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE&position[]=K&position[]=DEF&order_by=pts_ppr"));
 
     // proj[pid] = {ppr, half, std, date, opp}; teamsPlaying tells us who is on bye.
     const proj={},teamsPlaying=new Set(),teamDate={};
@@ -419,8 +426,7 @@ async function sync(){
         adds:trendCount[r.player_id]||0};
     }).filter(Boolean).sort((a,b)=>b.ppr-a.ppr);
 
-    const leagues=per.map(({lg,rosters,users,txns})=>{
-      const uById={};users.forEach(u=>uById[u.user_id]=u);
+    const leagues=per.map(({lg,rosters,txns})=>{
       const mine=rosters.find(r=>r.owner_id===user.user_id||(r.co_owners||[]).includes(user.user_id));
       if(!mine)return null;
 
@@ -1071,7 +1077,7 @@ function saveSettings(){
   localStorage.setItem("shq_thresh",String(S.thresh));
   closeModals();sync();
 }
-$("syncbtn").addEventListener("click",()=>sync());
+$("syncbtn").addEventListener("click",()=>{S.force=true;sync().finally(()=>{S.force=false;});});
 sync();
 </script>
 </body>
