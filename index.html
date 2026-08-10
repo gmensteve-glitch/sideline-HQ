@@ -90,6 +90,8 @@ body,#app,.grp,.act{max-width:100%}
 .grpbody .act{margin-bottom:7px}
 .okline{display:flex;align-items:center;gap:9px;padding:4px 6px 12px;color:var(--green);font-size:13px}
 .okline .sub{color:var(--muted)}
+.injline{font-size:11.5px;color:var(--yellow);margin-top:4px;line-height:1.45;opacity:.92;overflow-wrap:anywhere}
+.slot .injline{font-size:11px;margin-top:3px}
 
 /* per-league verdict banner */
 .status{border-radius:12px;padding:14px 15px;margin:6px 0 2px;display:flex;align-items:center;gap:13px}
@@ -425,6 +427,7 @@ async function sync(){
           name:p?(p.full_name||((p.first_name||"")+" "+(p.last_name||"")).trim()||String(id)):String(id),
           pos,tm,inj,bye,out:!!out,
           ib:p?p.injury_body_part:null, inote:p?p.injury_notes:null,
+        nu:p?p.news_updated:null, dco:p?p.depth_chart_order:null, sstat:p?p.status:null,
           pts:pr?(pr[ptsKey]||0):0,
           hasProj:!!pr,
           date:pr&&pr.date?pr.date:(teamDate[tm]||null),
@@ -589,6 +592,37 @@ function makeSwap(inP,outP,emptySlots){
           usesEmptySlot:!outP&&emptySlots.length>0};
 }
 
+/* ---- injury context: cost of sitting him, computed not guessed ---- */
+function replacementFor(l,pid){
+  const mark=p=>p&&p.id===pid?{...p,out:true}:p;
+  const alt=optimize(l.slots,l.actual.map(a=>({slot:a.slot,p:mark(a.p)})),l.pool.map(mark));
+  const tot=x=>x.reduce((s,y)=>s+(y.p&&!y.p.out?y.p.pts:0),0);
+  const had=new Set(l.ideal.map(x=>x.p&&x.p.id).filter(Boolean));
+  return {newGuy:alt.ideal.map(x=>x.p).find(p=>p&&p.id!==pid&&!had.has(p.id))||null,
+          cost:tot(l.ideal)-tot(alt.ideal)};
+}
+function daysAgo(ts){
+  if(!ts)return null;
+  const d=Math.floor((Date.now()-ts)/86400000);
+  return d<=0?"today":d===1?"1d ago":d+"d ago";
+}
+function injuryLine(p,l,isStarter){
+  const bits=[];
+  if(p.inote)bits.push(esc(p.inote));
+  if(p.sstat&&p.sstat!=="Active")bits.push("Sleeper lists him "+esc(p.sstat));
+  if(isStarter){
+    const r=replacementFor(l,p.id);
+    // flag it when the only cover is himself questionable — otherwise this reads
+    // like a safe fallback when it isn't
+    const alsoQ=r.newGuy&&r.newGuy.inj==="Questionable"?" — also Q":"";
+    if(p.out) bits.push(r.newGuy?esc(r.newGuy.name)+" takes the slot ("+fmtPts(r.newGuy.pts)+alsoQ+")"
+                                :"nothing on your bench covers this slot");
+    else      bits.push(r.newGuy?"If he sits, "+esc(r.newGuy.name)+" ("+fmtPts(r.newGuy.pts)+alsoQ+") — costs you "+fmtPts(r.cost)+" pts"
+                                :"If he sits you have no cover");
+  }
+  const age=daysAgo(p.nu); if(age)bits.push("news "+age);
+  return bits.length?'<div class="injline">'+bits.join(" · ")+"</div>":"";
+}
 /* ================= ACTION LIST ================= */
 function allActions(){
   const out=[];
@@ -642,6 +676,7 @@ function watchRow(p,l){
   return '<div class="act sev2"><span class="ico">👀</span><span class="body">'+
     '<div class="line1"><span class="pname">'+esc(p.name)+'</span> is questionable'+
       (p.ib?' ('+esc(p.ib)+')':'')+'</div>'+
+    injuryLine(p,l,true)+
     '<div class="line2"><span class="tag warn">Q</span>'+
       '<span class="tag day'+(d.soon?" soon":"")+'">'+esc(d.label)+'</span>'+
       '<span>'+esc(p.pos+" · "+p.tm)+'</span></div></span>'+
@@ -651,7 +686,7 @@ function homeHtml(){
   const L=S.data.leagues;
 
   // one group per drafted league, its moves sorted by what locks first
-  const groups=L.map((l,i)=>({l,i})).filter(x=>x.l.drafted).map(({l,i})=>{
+  const groups=L.map((l,i)=>({l,i})).filter(x=>x.l.drafted && !isBestBall(x.l)).map(({l,i})=>{
     const acts=lgActs(l).map(s=>({...s,lg:l}))
       .sort((a,b)=>dayInfo(a.date).ts-dayInfo(b.date).ts||a.sev-b.sev||b.delta-a.delta);
     return {l,i,acts,watch:l.watch,
@@ -728,7 +763,9 @@ function slotRow(slot,p,i,lgIdx){
   return '<div class="slot" onclick="togglePN('+lgIdx+',\''+jsq(p.id)+'\')" style="cursor:pointer">'+
     '<span class="slotname" style="background:'+col+'">'+esc(slot)+'</span>'+
     '<span style="min-width:0"><div class="pn">'+esc(p.name)+'</div>'+
-    '<div class="ptm">'+esc(p.pos+" · "+p.tm)+(p.opp?" vs "+esc(p.opp):"")+'</div></span>'+
+    '<div class="ptm">'+esc(p.pos+" · "+p.tm)+(p.opp?" vs "+esc(p.opp):"")+'</div>'+
+    ((p.inj||p.bye)&&slot!=="BN"?injuryLine(p,S.data.leagues[lgIdx],true)
+      :(p.inj?injuryLine(p,S.data.leagues[lgIdx],false):""))+'</span>'+
     pill+
     '<span class="pts'+(p.out?" dim":"")+'">'+(p.out?"—":fmtPts(p.pts))+'</span></div>'+
     '<div class="pnews" id="pn-'+esc(p.id)+'"></div>';
@@ -785,9 +822,10 @@ function addRow(a,l){
 }
 function leagueHtml(i){
   const l=S.data.leagues[i];
+  const bbTag = isBestBall(l)? ' <span class="tag">Best Ball</span>' : '';
   const url=SLEEPER_WEB+l.id+"/team";
   let h='<button class="backbtn" onclick="goLeagues()">‹ All leagues</button>'+
-    '<div class="lgtitle">'+esc(l.name)+'</div>'+
+    '<div class="lgtitle">'+esc(l.name)+bbTag+'</div>'+
     '<div class="lgmeta">'+l.size+'-team · '+esc(l.scoring)+' · '+esc(l.record)+' · Rank '+l.rank+'/'+l.size+
     (l.faabLeft!=null?' · FAAB $'+l.faabLeft+'/$'+l.budget:'')+'</div>'+
     '<a class="opensl" href="'+url+'" target="_blank" rel="noopener">Open in Sleeper ›</a>';
@@ -910,6 +948,7 @@ function leagueRow(l,i){
   const extra=l.drafted&&l.adds.filter(a=>!a.onWaivers).length
     ? ' · '+l.adds.filter(a=>!a.onWaivers).length+' free agent upgrade'+(l.adds.filter(a=>!a.onWaivers).length===1?'':'s') : '';
   const manage=S.view.manageLeagues;
+  const bbTag = isBestBall(l)? '<span class="tag">Best Ball</span>' : '';
   const rowStart=manage?'<div class="lgrow manage">':'<button class="lgrow" onclick="openTeam('+i+')">';
   const rowEnd=manage?'</div>':'</button>';
   const main='<span style="min-width:0;display:flex;align-items:center;gap:11px;flex:1;text-align:left"'+
@@ -924,7 +963,7 @@ function leagueRow(l,i){
       '<button class="lgctrl" onclick="event.stopPropagation();moveLeagueDown(\''+l.id+'\')">↓</button>'+ 
       '<button class="lgctrl" onclick="event.stopPropagation();removeLeague(\''+l.id+'\')">Hide</button>'+ 
     '</span>' : '';
-  return rowStart+main+manageButtons+'<span class="lgstat" style="color:'+v.col+'">'+v.txt+'</span>'+rowEnd;
+  return rowStart+main+bbTag+manageButtons+'<span class="lgstat" style="color:'+v.col+'">'+v.txt+'</span>'+rowEnd;
 }
 function leaguesHtml(){
   const L=S.data.leagues;
