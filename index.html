@@ -338,6 +338,14 @@ function dayInfo(iso){
   const days=(d-Date.now())/86400000;
   return{label:d.toLocaleDateString(undefined,{weekday:"short"}),ts:d.getTime(),soon:days<1.5};
 }
+function fmtGameTimePST(iso){
+  if(!iso) return "TBD PST";
+  const hasTime = iso.includes("T");
+  const d = hasTime ? new Date(iso) : new Date(iso+"T00:00:00Z");
+  const date = d.toLocaleDateString(undefined,{month:"numeric",day:"numeric"});
+  const time = hasTime ? d.toLocaleTimeString("en-US",{timeZone:"America/Los_Angeles",hour:"numeric",minute:"2-digit",hour12:true})+" PST" : "TBD PST";
+  return date+" · "+time;
+}
 
 /* ================= SYNC ================= */
 async function sync(){
@@ -756,7 +764,8 @@ function slotRow(slot,p,i,lgIdx){
   return '<div class="slot" onclick="togglePN('+lgIdx+',\''+jsq(p.id)+'\')" style="cursor:pointer">'+
     '<span class="slotname" style="background:'+col+'">'+esc(slot)+'</span>'+
     '<span style="min-width:0"><div class="pn">'+esc(p.name)+'</div>'+
-    '<div class="ptm">'+esc(p.pos+" · "+p.tm)+(p.opp?" vs "+esc(p.opp):"")+'</div>'+
+    '<div class="ptm">'+esc(p.pos+" · "+p.tm)+(p.opp?" vs "+esc(p.opp):"")+'</div>'+ 
+    '<div class="ptm">'+esc(fmtGameTimePST(p.date))+'</div>'+ 
     ((p.inj||p.bye)&&slot!=="BN"?injuryLine(p,S.data.leagues[lgIdx],true)
       :(p.inj?injuryLine(p,S.data.leagues[lgIdx],false):""))+'</span>'+
     pill+
@@ -817,8 +826,9 @@ function leagueHtml(i){
   const l=S.data.leagues[i];
   const bbTag = isBestBall(l)? ' <span class="tag">Best Ball</span>' : '';
   const url=SLEEPER_WEB+l.id+"/team";
-  let h='<button class="backbtn" onclick="goLeagues()">‹ All leagues</button>'+
-    '<div class="lgtitle">'+esc(l.name)+bbTag+'</div>'+
+  let h='<button class="backbtn" onclick="goLeagues()">‹ All leagues</button>'+ 
+    '<button class="backbtn" style="margin-left:10px" onclick="nextLeague()">Next league ›</button>'+ 
+    '<div class="lgtitle">'+esc(l.name)+bbTag+'</div>'+ 
     '<div class="lgmeta">'+l.size+'-team · '+esc(l.scoring)+' · '+esc(l.record)+' · Rank '+l.rank+'/'+l.size+
     (l.faabLeft!=null?' · FAAB $'+l.faabLeft+'/$'+l.budget:'')+'</div>'+
     '<a class="opensl" href="'+url+'" target="_blank" rel="noopener">Open in Sleeper ›</a>';
@@ -886,7 +896,11 @@ function togglePN(lgIdx,pid){
     (p.ib?' — '+esc(p.ib):'')+(p.inote?'<br><span style="color:var(--muted)">'+esc(p.inote)+'</span>':'')+'</span></div>';
   else base+='<div class="chunk"><span class="bullet">✓</span><span>Healthy — no injury designation.'+
     (p.hasProj?' Projected <b>'+fmtPts(p.pts)+'</b> pts'+(p.opp?' vs '+esc(p.opp):'')+'.':'')+'</span></div>';
-  const cache=S.pNews[pid];
+  let cache=S.pNews[pid];
+  if(!cache){ // survive a reload — news is good for hours, not seconds
+    try{const st=JSON.parse(localStorage.getItem("shq_news")||"{}");
+        if(st[pid]&&Date.now()-st[pid].ts<6*3600*1000){cache=st[pid].html;S.pNews[pid]=cache;}}catch(e){}
+  }
   if(cache)base+=cache;
   else if(S.key)base+='<button class="ghost" style="margin-top:6px" onclick="deepDive(\''+jsq(pid)+'\',\''+jsq(p.name)+'\',\''+jsq(p.pos)+'\',\''+jsq(p.tm)+'\')">Latest news</button>';
   el.innerHTML=base;
@@ -916,11 +930,23 @@ async function deepDive(pid,name,pos,tm){
     const html=text.split("\n").filter(x=>x.trim()).map(ln=>
       '<div class="chunk"><span class="bullet">▸</span><span>'+esc(ln.replace(/^[-•*▸\s]+/,""))+'</span></div>').join("");
     S.pNews[pid]=html;
+    try{const st=JSON.parse(localStorage.getItem("shq_news")||"{}");
+        st[pid]={ts:Date.now(),html};localStorage.setItem("shq_news",JSON.stringify(st));}catch(e){}
     if(el.style.display==="block"){el.innerHTML=el.innerHTML.replace(/<button[\s\S]*?<\/button>/,"")+html;}
   }catch(e){if(btn)btn.textContent="Couldn't load — retry";}
 }
 async function fetchWaiverWhy(){
   if(!S.key||!S.data.board.length)return;
+  // one Sonnet call + web searches per app open adds up fast; 6h cache is plenty
+  // since the trending-adds board barely moves inside a day
+  try{
+    const c=JSON.parse(localStorage.getItem("shq_why")||"null");
+    if(c&&Date.now()-c.ts<6*3600*1000&&c.week===S.data.week){
+      S.waiverWhy=c.map||{};
+      if(S.view.t==="home")renderApp();
+      return;
+    }
+  }catch(e){}
   const names=S.data.board.slice(0,12).map(b=>b.name+" ("+b.pos+", "+b.tm+")");
   try{
     const text=await askClaude("claude-sonnet-5",700,
@@ -931,6 +957,8 @@ async function fetchWaiverWhy(){
       const m=ln.replace(/^[-•▸\s]+/,"").match(/^\*?\*?([^:*]+?)\*?\*?\s*:\s*(.+)$/);
       if(m)S.waiverWhy[m[1].trim()]=m[2].trim();
     });
+    try{localStorage.setItem("shq_why",JSON.stringify(
+      {ts:Date.now(),week:S.data.week,map:S.waiverWhy}));}catch(e){}
     if(S.view.t==="home")renderApp();
   }catch(e){}
 }
@@ -960,7 +988,8 @@ function leagueRow(l,i){
 }
 function leaguesHtml(){
   const L=S.data.leagues;
-  const drafted=L.filter(l=>l.drafted),pre=L.filter(l=>!l.drafted);
+  const visible=L.filter(l=>!isBestBall(l));
+  const drafted=visible.filter(l=>l.drafted),pre=visible.filter(l=>!l.drafted);
   const rank={bad:0,warn:1,ok:2};
   const sorted=drafted.map((l,idx)=>({l,i:L.indexOf(l)}))
     .sort((a,b)=>rank[lgVerdict(a.l).k]-rank[lgVerdict(b.l).k]||a.l.name.localeCompare(b.l.name));
@@ -976,6 +1005,11 @@ function leaguesHtml(){
   if(pre.length){
     h+='<div class="big">Not drafted <span class="cnt">'+pre.length+'</span></div>';
     h+=pre.map(l=>leagueRow(l,L.indexOf(l))).join("");
+  }
+  const bestBall=L.filter(isBestBall);
+  if(bestBall.length){
+    h+='<div class="big">Hidden best-ball leagues <span class="cnt">'+bestBall.length+'</span></div>';
+    h+=bestBall.map((l,i)=>leagueRow(l,L.indexOf(l))).join("");
   }
   if(S.view.manageLeagues && S.hiddenLeagues.length){
     h+='<div class="big">Hidden leagues <span class="cnt">'+S.hiddenLeagues.length+'</span></div>';
@@ -1010,6 +1044,18 @@ function renderApp(){
 function goHome(){S.view={t:"home"};renderApp();}
 function goLeagues(){S.view={t:"leagues"};renderApp();}
 function openTeam(i){S.view={t:"lg",i};renderApp();}
+function nextLeague(){
+  const idx=S.view.i;
+  const L=S.data.leagues.filter(l=>!isBestBall(l));
+  const total=L.length;
+  if(typeof idx!=='number' || total===0) return;
+  const current=L.findIndex(l=>l.id===S.data.leagues[idx].id);
+  if(current<0)return openTeam(idx);
+  const next=(current+1)%total;
+  const nextLeagueId=L[next].id;
+  const nextIndex=S.data.leagues.findIndex(l=>l.id===nextLeagueId);
+  if(nextIndex>=0)openTeam(nextIndex);
+}
 function closeModals(){$("setmodal").classList.remove("show");}
 document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModals();}));
 $("gear").addEventListener("click",()=>{
