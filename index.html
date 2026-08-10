@@ -224,9 +224,13 @@ details.sect .inner{padding:0 12px 12px}
     <div class="note">Lineup swaps are pure math from Sleeper's projections — no AI, no waiting. Injured, benched, and bye-week starters are always flagged regardless of this number.</div>
   </div>
   <div class="field">
-    <label>Anthropic API key (optional)</label>
-    <input id="set-key" type="password" placeholder="sk-ant-…" autocomplete="off" />
-    <div class="note">Only used for on-demand player news when you tap a player, and for one-line notes on waiver targets. Everything else works without it. Paste it only here.</div>
+    <label>Anthropic API key — leave blank to run free</label>
+    <input id="set-key" type="password" placeholder="sk-ant-… (optional)" autocomplete="off" />
+    <div id="usagebox" class="note"></div>
+    <div class="note"><b>Every lineup and waiver decision is free.</b> Projections,
+    byes, injuries, sit/start, empty slots, free-agent upgrades and waiver timing all
+    come from Sleeper plus arithmetic — no key needed. A key only adds written notes on
+    waiver targets and on-tap player news. Paste it only here.</div>
   </div>
   <button class="primary" onclick="saveSettings()">Save &amp; refresh</button>
 </div></div>
@@ -911,12 +915,39 @@ function togglePN(lgIdx,pid){
   else if(S.key)base+='<button class="ghost" style="margin-top:6px" onclick="deepDive(\''+jsq(pid)+'\',\''+jsq(p.name)+'\',\''+jsq(p.pos)+'\',\''+jsq(p.tm)+'\')">Latest news</button>';
   el.innerHTML=base;
 }
+// list rates $/MTok [input, output]; web search ~$10 per 1,000
+const RATE={"claude-sonnet-5":[3,15],"claude-haiku-4-5":[1,5]};
+function noteUsage(model,u){
+  if(!u)return;
+  try{
+    const st=JSON.parse(localStorage.getItem("shq_usage")||"null")||{since:Date.now(),searches:0,m:{}};
+    const e=st.m[model]=st.m[model]||{calls:0,in:0,out:0};
+    e.calls++;
+    e.in+=(u.input_tokens||0)+(u.cache_read_input_tokens||0)+(u.cache_creation_input_tokens||0);
+    e.out+=u.output_tokens||0;
+    st.searches+=((u.server_tool_use||{}).web_search_requests)||0;
+    localStorage.setItem("shq_usage",JSON.stringify(st));
+  }catch(e){}
+}
+function usageSummary(){
+  let st;try{st=JSON.parse(localStorage.getItem("shq_usage")||"null");}catch(e){}
+  if(!st||!st.m)return null;
+  let cost=st.searches*0.01,calls=0;
+  Object.keys(st.m).forEach(k=>{
+    const r=RATE[k]||[3,15],e=st.m[k];
+    calls+=e.calls; cost+=e.in/1e6*r[0]+e.out/1e6*r[1];
+  });
+  const days=Math.max(1,(Date.now()-(st.since||Date.now()))/86400000);
+  return {calls,searches:st.searches,cost,perWeek:cost/days*7,days};
+}
 async function callClaude(body){
   const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",
     headers:{"Content-Type":"application/json","x-api-key":S.key,
       "anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
     body:JSON.stringify(body)});
-  return r.json();
+  const j=await r.json();
+  noteUsage(body.model,j&&j.usage);
+  return j;
 }
 async function askClaude(model,maxTokens,system,prompt){
   const body={model,max_tokens:maxTokens,system,messages:[{role:"user",content:prompt}],
@@ -943,11 +974,13 @@ async function deepDive(pid,name,pos,tm){
 }
 async function fetchWaiverWhy(){
   if(!S.key||!S.data.board.length)return;
-  // one Sonnet call + web searches per app open adds up fast; 6h cache is plenty
-  // since the trending-adds board barely moves inside a day
+  // Key the cache on the board itself, not a clock: if the same players are
+  // still trending there is nothing new to say, so this can go days without a
+  // single call — and refetches immediately when a new name appears.
+  const sig=S.data.board.slice(0,12).map(b=>b.name).join("|");
   try{
     const c=JSON.parse(localStorage.getItem("shq_why")||"null");
-    if(c&&Date.now()-c.ts<6*3600*1000&&c.week===S.data.week){
+    if(c&&c.sig===sig){
       S.waiverWhy=c.map||{};
       if(S.view.t==="home")renderApp();
       return;
@@ -964,7 +997,7 @@ async function fetchWaiverWhy(){
       if(m)S.waiverWhy[m[1].trim()]=m[2].trim();
     });
     try{localStorage.setItem("shq_why",JSON.stringify(
-      {ts:Date.now(),week:S.data.week,map:S.waiverWhy}));}catch(e){}
+      {sig,ts:Date.now(),map:S.waiverWhy}));}catch(e){}
     if(S.view.t==="home")renderApp();
   }catch(e){}
 }
@@ -1066,8 +1099,19 @@ function closeModals(){$("setmodal").classList.remove("show");}
 document.querySelectorAll(".modal").forEach(m=>m.addEventListener("click",e=>{if(e.target===m)closeModals();}));
 $("gear").addEventListener("click",()=>{
   $("set-user").value=S.user;$("set-key").value=S.key;$("set-thresh").value=S.thresh;
+  const u=usageSummary();
+  $("usagebox").innerHTML=!u||!u.calls
+    ? 'No AI calls made yet — you are spending <b>$0</b>.'
+    : 'AI spend so far: <b>$'+u.cost.toFixed(2)+'</b> over '+Math.round(u.days)+
+      ' day'+(Math.round(u.days)===1?'':'s')+' ('+u.calls+' calls, '+u.searches+
+      ' web searches) — about <b>$'+u.perWeek.toFixed(2)+'/week</b> at this rate. '+
+      '<button class="ghost" style="margin-top:6px" onclick="resetUsage()">Reset counter</button>';
   $("setmodal").classList.add("show");
 });
+function resetUsage(){
+  localStorage.removeItem("shq_usage");
+  $("usagebox").innerHTML='Counter reset — you are spending <b>$0</b>.';
+}
 function saveSettings(){
   S.user=$("set-user").value.trim()||S.user;
   S.key=$("set-key").value.trim();

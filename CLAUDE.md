@@ -45,6 +45,15 @@ resort, then diffs the ideal lineup against the actual one.
   That timestamp split is what powers "free now" vs "bid on waivers".
 - CORS is `*`, so `file://` works for local testing
 
+## Cost posture
+
+The app is free to run. Sleeper needs no key and every decision the app makes
+(lineups, byes, injuries, sit/start, free agents, waiver timing) is arithmetic
+on Sleeper data. An Anthropic key is optional and only adds prose. Settings
+shows measured spend from real `usage` fields — don't estimate, read it.
+
+Keep it that way: no new paid call may sit on the path to a decision.
+
 ## AI usage — keep it small
 
 Only two optional calls, both need a user-supplied key, neither on the critical
