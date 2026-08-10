@@ -7,8 +7,13 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
 :root{
-  --bg:#0F1712; --panel:#17221B; --panel2:#1C2921; --line:rgba(214,228,216,.10);
-  --chalk:#E9F1EA; --muted:#93A498; --yellow:#FFD24A; --green:#7FE0A8; --red:#FF6B5E; --cyan:#7CC7E8;
+  /* VS Code Dark+ inspired palette */
+  --bg:#1e1e1e; /* VS Code editor background */
+  --panel:#252526; --panel2:#2d2d2d; --line:rgba(255,255,255,.04);
+  --chalk:#d4d4d4; --muted:#858585;
+  --accent:#007ACC; /* VS Code blue */
+  --yellow:var(--accent); --green:#6A9955; --cyan:var(--accent);
+  --red:#F44747;
   --disp:'Barlow Condensed',sans-serif; --body:'Inter',system-ui,sans-serif;
 }
 *{box-sizing:border-box;margin:0;padding:0}
@@ -33,7 +38,7 @@ header>div:first-child{min-width:0}
 .drivewrap{width:100%;max-width:520px}
 .drive{position:relative;height:46px;border-radius:8px;overflow:hidden;border:1px solid var(--line);
  background:repeating-linear-gradient(90deg,#14201A 0 9.5%,rgba(233,241,234,.10) 9.5% 10%)}
-.fill{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,rgba(127,224,168,.16),rgba(255,210,74,.28));transition:width .4s ease}
+ .fill{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,rgba(0,122,204,0.10),rgba(0,122,204,0.04));transition:width .4s ease}
 .marker{position:absolute;top:0;bottom:0;width:3px;background:var(--yellow);box-shadow:0 0 12px var(--yellow);transition:left .4s ease}
 .dlabel{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--disp);font-size:15px;letter-spacing:2px;text-transform:uppercase}
 .dsub{margin-top:6px;text-align:center;font-family:var(--disp);color:var(--muted);font-size:13px;letter-spacing:3px;text-transform:uppercase}
@@ -69,17 +74,18 @@ body,#app,.grp,.act{max-width:100%}
 .start{color:var(--green);font-weight:600}
 .tag{font-family:var(--disp);font-size:10px;letter-spacing:1px;text-transform:uppercase;border-radius:4px;padding:1px 5px;font-weight:700}
 .tag.bad{background:rgba(255,107,94,.18);color:var(--red)}
-.tag.warn{background:rgba(255,210,74,.18);color:var(--yellow)}
-.tag.up{background:rgba(127,224,168,.16);color:var(--green)}
+.tag.warn{background:rgba(0,122,204,0.08);color:var(--accent)}
+.tag.up{background:rgba(0,122,204,0.12);color:var(--accent)}
+.allgood{background:rgba(106,153,85,0.10);border:1px solid rgba(106,153,85,0.25);border-radius:12px;padding:20px 16px;text-align:center}
 .tag.day{background:var(--panel2);color:var(--muted)}
 .tag.day.soon{background:rgba(255,107,94,.18);color:var(--red)}
-.allgood{background:rgba(127,224,168,.10);border:1px solid rgba(127,224,168,.25);border-radius:12px;padding:20px 16px;text-align:center}
+.allgood{background:rgba(46,196,182,0.10);border:1px solid rgba(46,196,182,0.25);border-radius:12px;padding:20px 16px;text-align:center}
 .allgood .t{font-family:var(--disp);font-size:20px;letter-spacing:2px;text-transform:uppercase;color:var(--green)}
 .allgood .s{color:var(--muted);font-size:13px;margin-top:5px}
 
 /* Now page: one card per league */
 .grp{border:1px solid var(--line);border-radius:12px;margin-bottom:9px;overflow:hidden;background:var(--panel)}
-.grp.clean .grphd{background:rgba(127,224,168,.07)}
+.grp.clean .grphd{background:rgba(0,122,204,0.04)}
 .grphd{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:var(--panel2);
  border:none;border-bottom:1px solid var(--line);padding:10px 12px;color:var(--chalk)}
 .grphd .nm{font-family:var(--disp);font-size:15px;font-weight:600;letter-spacing:.5px;
@@ -98,11 +104,11 @@ body,#app,.grp,.act{max-width:100%}
 .status .ic{font-size:22px;flex-shrink:0}
 .status .t{font-family:var(--disp);font-size:19px;letter-spacing:2px;text-transform:uppercase;line-height:1.1}
 .status .s{color:var(--muted);font-size:12px;margin-top:3px}
-.status.ok{background:rgba(127,224,168,.10);border:1px solid rgba(127,224,168,.28)}
+.status.ok{background:rgba(106,153,85,0.10);border:1px solid rgba(106,153,85,0.28)}
 .status.ok .t{color:var(--green)}
 .status.bad{background:rgba(255,107,94,.10);border:1px solid rgba(255,107,94,.30)}
 .status.bad .t{color:var(--red)}
-.status.warn{background:rgba(255,210,74,.09);border:1px solid rgba(255,210,74,.28)}
+.status.warn{background:rgba(0,122,204,0.04);border:1px solid rgba(0,122,204,0.12)}
 .status.warn .t{color:var(--yellow)}
 
 /* header view switch */
@@ -727,20 +733,7 @@ function homeHtml(){
       '<div class="grpbody">'+body+'</div></div>';
   }).join("");
 
-  // one waiver decision per player, not per league
-  if(S.data.board.length){
-    h+='<div class="big">Waiver targets <span class="cnt">free in your leagues</span></div>';
-    h+=S.data.board.slice(0,10).map(b=>{
-      const why=S.waiverWhy[b.name]?' — '+esc(S.waiverWhy[b.name]):'';
-      const where=b.where.map(w=>esc(w.name)+(w.faab!=null?' ($'+w.faab+')':'')).join(" · ");
-      return '<div class="act sev3"><span class="ico">🔥</span><span class="body">'+
-        '<div class="line1"><span class="pname">'+esc(b.name)+'</span> '+esc(b.pos+" · "+b.tm)+
-        (b.pts?' <span class="tag up">'+fmtPts(b.pts)+' proj</span>':'')+why+'</div>'+
-        '<div class="line2"><span>'+(b.adds>=1000?Math.round(b.adds/1000)+"k":b.adds)+' adds</span>'+
-        '<span>Free in: '+where+'</span></div>'+
-        '</span><a class="go" href="'+SLEEPER_WEB+b.where[0].id+'/players" target="_blank" rel="noopener">Add ›</a></div>';
-    }).join("");
-  }
+  // Waiver targets temporarily removed per user request
 
   const pre=L.map((l,i)=>({l,i})).filter(x=>!x.l.drafted);
   if(pre.length){
